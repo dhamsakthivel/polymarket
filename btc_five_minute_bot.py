@@ -164,7 +164,10 @@ class PolymarketBot:
         return bool(is_btc and is_five_minutes and is_directional)
 
     def discover_markets(self) -> list[Market]:
-        query = urlencode({"active": "true", "closed": "false", "limit": 500})
+        # Polymarket's BTC 5-minute event slug ends in the UTC window-start Unix timestamp.
+        # Querying the current slug directly is reliable and avoids scanning unrelated markets.
+        window_start = int(time.time() // 300 * 300)
+        query = urlencode({"slug": f"btc-updown-5m-{window_start}"})
         response = self._http_json(f"{self.config.gamma_url}?{query}")
         rows = response.get("data", []) if isinstance(response, dict) else response
         markets: list[Market] = []

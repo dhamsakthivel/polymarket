@@ -4,6 +4,8 @@ An entry-only Python 3.11+ bot for Polymarket BTC Up/Down 5-minute markets.
 It buys the leading outcome only when its best buy price is at least $0.80 and
 there are 150 seconds or fewer left in the market. It allows one entry per
 market window and never changes between paper and live modes by itself.
+Market discovery directly queries Polymarket Gamma for the current
+`btc-updown-5m-<UTC-window-timestamp>` market, which rolls every five minutes.
 
 > **Important:** This is trading software, not investment advice. It has no
 > early-exit logic: a filled position is held until Polymarket resolves it.
