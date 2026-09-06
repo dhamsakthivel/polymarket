@@ -35,7 +35,6 @@ export POLYMARKET_BOT_MODE=PAPER
 export PRICE_THRESHOLD=0.80
 export TIME_THRESHOLD_SECONDS=150
 export TRADE_SIZE_USDC=1.00
-export SLIPPAGE_TOLERANCE=0.02
 export MAX_DAILY_LOSS_USDC=10.00
 export POLL_INTERVAL_SECONDS=5
 export MAX_CONSECUTIVE_ERRORS=8
@@ -72,8 +71,8 @@ python3 btc_five_minute_bot.py
 The bot derives CLOB API credentials through `py-clob-client`; do not paste
 API secrets into the code. Ensure your wallet has funds and Polymarket-required
 allowances before live operation. Live orders are fill-or-kill limit buys,
-capped at `PRICE_THRESHOLD + SLIPPAGE_TOLERANCE`, so the bot will not chase a
-price beyond its configured tolerance.
+set to the observed qualifying price. They will not execute at a worse price
+if the market moves before submission; in that case the FOK order is rejected.
 
 ## Files and safety behavior
 

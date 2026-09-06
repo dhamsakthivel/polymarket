@@ -31,7 +31,6 @@ class BotConfig:
     price_threshold: float = float(os.getenv("PRICE_THRESHOLD", "0.80"))
     time_threshold_seconds: int = int(os.getenv("TIME_THRESHOLD_SECONDS", "150"))
     trade_size_usdc: float = float(os.getenv("TRADE_SIZE_USDC", "1.00"))
-    slippage_tolerance: float = float(os.getenv("SLIPPAGE_TOLERANCE", "0.02"))
     max_daily_loss_usdc: float = float(os.getenv("MAX_DAILY_LOSS_USDC", "10.00"))
     poll_interval_seconds: float = float(os.getenv("POLL_INTERVAL_SECONDS", "5"))
     max_consecutive_errors: int = int(os.getenv("MAX_CONSECUTIVE_ERRORS", "8"))
@@ -47,15 +46,11 @@ class BotConfig:
     def trade_log(self) -> Path:
         return Path("paper_trades.jsonl" if self.mode == "PAPER" else "live_trades.jsonl")
 
-    @property
-    def maximum_entry_price(self) -> float:
-        return self.price_threshold + self.slippage_tolerance
-
     def validate(self) -> None:
         if self.mode not in {"PAPER", "LIVE"}:
             raise ValueError("POLYMARKET_BOT_MODE must be exactly PAPER or LIVE")
-        if not 0 < self.price_threshold <= 1 or not 0 <= self.maximum_entry_price <= 1:
-            raise ValueError("price threshold and threshold + slippage must be in (0, 1]")
+        if not 0 < self.price_threshold <= 1:
+            raise ValueError("price threshold must be in (0, 1]")
         if self.time_threshold_seconds < 0 or self.trade_size_usdc <= 0:
             raise ValueError("time threshold must be non-negative and trade size positive")
         if self.max_daily_loss_usdc < 0 or self.max_consecutive_errors < 1:
@@ -275,11 +270,8 @@ class PolymarketBot:
             return
         if remaining > self.config.time_threshold_seconds:
             return
-        # Exact entry gate: at/above threshold, but never chase above configured maximum.
+        # Exact entry gate: from 150 seconds through expiry, buy the leader at any price >= threshold.
         if price < self.config.price_threshold:
-            return
-        if price > self.config.maximum_entry_price:
-            self._record_skip(market, outcome, price, remaining, "price_exceeds_slippage_tolerance")
             return
         if self.circuit_breaker_tripped():
             self._record_skip(market, outcome, price, remaining, "daily_loss_circuit_breaker")
@@ -309,15 +301,15 @@ class PolymarketBot:
             self.log.info("PAPER fill: %s %s at $%.3f", outcome.name, market.market_id, price)
             return
 
-        # A FOK limit order caps the execution price at the permitted maximum; it cannot chase above it.
+        # FOK at the observed price preserves the $1 budget and cannot fill at a worse later price.
         from py_clob_client.clob_types import OrderArgs, OrderType
         from py_clob_client.order_builder.constants import BUY
-        shares = self.config.trade_size_usdc / self.config.maximum_entry_price
-        order = OrderArgs(token_id=outcome.token_id, price=self.config.maximum_entry_price, size=shares, side=BUY)
+        shares = self.config.trade_size_usdc / price
+        order = OrderArgs(token_id=outcome.token_id, price=price, size=shares, side=BUY)
         response = self.client().post_order(self.client().create_order(order), OrderType.FOK)
-        # FOK allows conservative accounting at the price cap even if it receives price improvement.
-        record = {**base, "status": "fok_fill_accepted", "limit_price": self.config.maximum_entry_price,
-                  "filled_price": self.config.maximum_entry_price, "response": response}
+        # FOK allows conservative accounting at the observed price even if it receives price improvement.
+        record = {**base, "status": "fok_fill_accepted", "limit_price": price,
+                  "filled_price": price, "response": response}
         self.events.trade(record)
         self.events.write("trade_fill", **record)
         # FOK either fills fully or does not execute. Only successful API acknowledgement gets locked.
