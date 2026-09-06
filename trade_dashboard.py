@@ -25,7 +25,7 @@ table{border-collapse:collapse;width:100%;background:#192231}th,td{text-align:le
 <h2>Unavailable entries and operational events</h2><table><thead><tr><th>Time (ADT/AST)</th><th>Event</th><th>Price / time left</th><th>Reason</th></tr></thead><tbody id="events"></tbody></table>
 <script>
 const dollar=v=>'$'+Number(v||0).toFixed(2), text=v=>v==null?'':String(v);
-const adt=v=>v?new Intl.DateTimeFormat('en-CA',{timeZone:'America/Halifax',dateStyle:'medium',timeStyle:'medium',timeZoneName:'short'}).format(new Date(v)):'';
+const adt=v=>v?new Intl.DateTimeFormat('en-CA',{timeZone:'America/Halifax',year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZoneName:'short'}).format(new Date(v)):'';
 function cell(row, value, cls=''){let td=document.createElement('td');td.textContent=text(value);td.className=cls;row.appendChild(td)}
 async function refresh(){
   const r=await fetch('/api/data',{cache:'no-store'}); if(!r.ok)throw new Error('Unable to read logs'); const d=await r.json();
