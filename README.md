@@ -54,6 +54,23 @@ POLYMARKET_BOT_MODE=PAPER python3 btc_five_minute_bot.py
 Paper mode uses live Gamma/CLOB prices but makes no authenticated request and
 does not submit an order. A simulated fill is recorded at the observed price.
 
+## View trades and results
+
+Run this in a second terminal in the same folder as the bot:
+
+```bash
+python3 trade_dashboard.py
+```
+
+Open `http://127.0.0.1:8080` in a browser. This local, read-only UI refreshes
+every five seconds and shows accepted fills, open positions, resolved P/L, and
+unavailable entries. It only reads the bot's JSONL/state files; it cannot
+place or modify trades. To use a different log folder or port:
+
+```bash
+python3 trade_dashboard.py --directory /path/to/bot/logs --port 8081
+```
+
 ## Switch to live trading deliberately
 
 Only change the explicit mode variable when you intend to submit real orders:
@@ -88,3 +105,7 @@ current UTC day and prevents new entries after `MAX_DAILY_LOSS_USDC`. It
 applies in both modes. Transient failures use exponential backoff; after the
 configured consecutive-error threshold the process exits with a critical log
 instead of silently retrying indefinitely.
+
+During every final-150-second market check, a leading price below 80¢ is
+recorded as an `entry_unavailable` event. This makes missed entries visible in
+the dashboard and event log without changing the entry rule.

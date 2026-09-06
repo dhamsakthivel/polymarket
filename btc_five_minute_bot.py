@@ -259,6 +259,12 @@ class PolymarketBot:
         self.events.write("skipped_opportunity", market_id=market.market_id, token_id=outcome.token_id,
                           price=price, seconds_remaining=remaining, reason=reason)
 
+    def _record_unavailable(self, market: Market, outcome: Outcome, price: float, remaining: float) -> None:
+        """Keep an auditable record of every eligible-window check that did not enter."""
+        self.events.write("entry_unavailable", market_id=market.market_id, token_id=outcome.token_id,
+                          outcome=outcome.name, price=price, seconds_remaining=remaining,
+                          reason="price_below_threshold", price_threshold=self.config.price_threshold)
+
     def consider_market(self, market: Market) -> None:
         remaining = (market.end_time - datetime.now(timezone.utc)).total_seconds()
         if market.market_id in self.entered_market_ids:
@@ -272,6 +278,7 @@ class PolymarketBot:
             return
         # Exact entry gate: from 150 seconds through expiry, buy the leader at any price >= threshold.
         if price < self.config.price_threshold:
+            self._record_unavailable(market, outcome, price, remaining)
             return
         if self.circuit_breaker_tripped():
             self._record_skip(market, outcome, price, remaining, "daily_loss_circuit_breaker")
