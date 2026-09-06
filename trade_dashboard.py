@@ -26,6 +26,13 @@ table{border-collapse:collapse;width:100%;background:#192231}th,td{text-align:le
 <script>
 const dollar=v=>'$'+Number(v||0).toFixed(2), text=v=>v==null?'':String(v);
 const adt=v=>v?new Intl.DateTimeFormat('en-CA',{timeZone:'America/Halifax',year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZoneName:'short'}).format(new Date(v)):'';
+function finalOutcome(trade){
+  if(!trade.settlement)return 'Awaiting resolution';
+  if(trade.settlement.final_outcome)return trade.settlement.final_outcome;
+  if(trade.settlement.final_price===1)return trade.outcome;
+  if(trade.settlement.final_price===0)return trade.outcome==='Up'?'Down':'Up';
+  return 'Awaiting resolution';
+}
 function cell(row, value, cls=''){let td=document.createElement('td');td.textContent=text(value);td.className=cls;row.appendChild(td)}
 async function refresh(){
   const r=await fetch('/api/data',{cache:'no-store'}); if(!r.ok)throw new Error('Unable to read logs'); const d=await r.json();
@@ -33,7 +40,7 @@ async function refresh(){
   document.querySelector('#pnl').textContent=dollar(d.summary.realized_pnl); document.querySelector('#pnl').className=d.summary.realized_pnl<0?'bad':'good';
   document.querySelector('#open').textContent=d.summary.open_positions; document.querySelector('#updated').textContent='Reading '+d.directory+' • refreshed '+new Date().toLocaleTimeString();
   const trades=document.querySelector('#trades'); trades.replaceChildren();
-  for(const x of d.trades){const row=document.createElement('tr'); cell(row,adt(x.timestamp)); cell(row,(x.outcome||'')+' buy • '+(x.token_id||'')); cell(row,dollar(x.filled_price||x.price)); cell(row,dollar(x.size_usdc)); const final=x.settlement?(x.settlement.final_outcome||'Resolved'): 'Awaiting resolution'; cell(row,final); const result=x.settlement?dollar(x.settlement.pnl_usdc):(x.status||'accepted'); cell(row,result,x.settlement?.pnl_usdc<0?'bad':'good'); trades.appendChild(row)}
+  for(const x of d.trades){const row=document.createElement('tr'); cell(row,adt(x.timestamp)); cell(row,(x.outcome||'')+' buy • '+(x.token_id||'')); cell(row,dollar(x.filled_price||x.price)); cell(row,dollar(x.size_usdc)); cell(row,finalOutcome(x)); const result=x.settlement?dollar(x.settlement.pnl_usdc):(x.status||'accepted'); cell(row,result,x.settlement?.pnl_usdc<0?'bad':'good'); trades.appendChild(row)}
   const events=document.querySelector('#events'); events.replaceChildren();
   for(const x of d.events){const row=document.createElement('tr'); cell(row,adt(x.timestamp)); cell(row,x.event); cell(row,(x.price==null?'':dollar(x.price))+(x.seconds_remaining==null?'':' • '+Math.round(x.seconds_remaining)+'s')); cell(row,x.reason||x.error||''); events.appendChild(row)}
 }
