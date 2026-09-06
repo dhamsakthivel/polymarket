@@ -240,6 +240,7 @@ class PolymarketBot:
                 prices = self._json_list(raw.get("outcomePrices"))
                 final_prices = {str(name): float(price) for name, price in zip(names, prices)}
                 final_price = final_prices.get(str(trade["outcome"]))
+                final_outcome = next((name for name, value in final_prices.items() if value == 1.0), None)
                 if final_price not in {0.0, 1.0}:
                     continue
             except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
@@ -250,6 +251,7 @@ class PolymarketBot:
                 "settled_at": datetime.now(timezone.utc).isoformat(),
                 "pnl_usdc": pnl,
                 "final_price": final_price,
+                "final_outcome": final_outcome,
             }
             self.state["settlements"][market_id] = settlement
             del self.state["open_trades"][market_id]

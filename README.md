@@ -65,8 +65,10 @@ python3 trade_dashboard.py
 ```
 
 Open `http://127.0.0.1:8080` in a browser. This local, read-only UI refreshes
-every five seconds and shows accepted fills, open positions, resolved P/L, and
-unavailable entries. It only reads the bot's JSONL/state files; it cannot
+every five seconds and shows accepted fills, the Up/Down side bought, final
+resolved outcome, resolved P/L, open positions, and unavailable entries. Its
+timestamps use Atlantic time (`America/Halifax`), displaying ADT or AST as
+appropriate. It only reads the bot's JSONL/state files; it cannot
 place or modify trades. To use a different log folder or port:
 
 ```bash
