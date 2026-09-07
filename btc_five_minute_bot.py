@@ -109,7 +109,13 @@ class ChainlinkTwapFeed:
         threading.Thread(target=self._run, name="chainlink-twap", daemon=True).start()
 
     def _run(self) -> None:
-        asyncio.run(self._consume())
+        while True:
+            try:
+                asyncio.run(self._consume())
+                logging.getLogger("polymarket_bot").warning("RTDS stream ended; reconnecting in 5 seconds.")
+            except Exception as exc:
+                logging.getLogger("polymarket_bot").warning("RTDS stream error: %s; reconnecting in 5 seconds.", exc)
+            time.sleep(5)
 
     async def _consume(self) -> None:
         from polymarket import AsyncPublicClient
