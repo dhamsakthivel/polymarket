@@ -12,6 +12,8 @@ import logging
 import os
 import re
 import sys
+import asyncio
+import threading
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -31,6 +33,12 @@ class BotConfig:
     price_threshold: float = float(os.getenv("PRICE_THRESHOLD", "0.80"))
     time_threshold_seconds: int = int(os.getenv("TIME_THRESHOLD_SECONDS", "150"))
     trade_size_usdc: float = float(os.getenv("TRADE_SIZE_USDC", "1.00"))
+    difference_10_usdc_threshold: float = float(os.getenv("DIFFERENCE_10_USDC_THRESHOLD", "30"))
+    difference_100_usdc_threshold: float = float(os.getenv("DIFFERENCE_100_USDC_THRESHOLD", "50"))
+    difference_10_trade_size_usdc: float = float(os.getenv("DIFFERENCE_10_TRADE_SIZE_USDC", "10"))
+    difference_100_trade_size_usdc: float = float(os.getenv("DIFFERENCE_100_TRADE_SIZE_USDC", "100"))
+    reference_capture_delay_seconds: int = int(os.getenv("REFERENCE_CAPTURE_DELAY_SECONDS", "15"))
+    twap_max_age_seconds: int = int(os.getenv("TWAP_MAX_AGE_SECONDS", "30"))
     max_daily_loss_usdc: float = float(os.getenv("MAX_DAILY_LOSS_USDC", "10.00"))
     poll_interval_seconds: float = float(os.getenv("POLL_INTERVAL_SECONDS", "5"))
     max_consecutive_errors: int = int(os.getenv("MAX_CONSECUTIVE_ERRORS", "8"))
@@ -53,6 +61,8 @@ class BotConfig:
             raise ValueError("price threshold must be in (0, 1]")
         if self.time_threshold_seconds < 0 or self.trade_size_usdc <= 0:
             raise ValueError("time threshold must be non-negative and trade size positive")
+        if self.difference_10_usdc_threshold >= self.difference_100_usdc_threshold:
+            raise ValueError("the $100 threshold must exceed the $10 threshold")
         if self.max_daily_loss_usdc < 0 or self.max_consecutive_errors < 1:
             raise ValueError("max daily loss must be non-negative and error threshold positive")
 
@@ -68,6 +78,7 @@ class Market:
     market_id: str
     gamma_id: str
     question: str
+    start_time: datetime
     end_time: datetime
     outcomes: tuple[Outcome, ...]
 
@@ -86,6 +97,41 @@ class JsonlLogger:
             handle.write(json.dumps(record, sort_keys=True, default=str) + "\n")
 
 
+class ChainlinkTwapFeed:
+    """Caches Polymarket RTDS's official relay of Chainlink BTC/USD 60-second TWAP."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._price: float | None = None
+        self._timestamp_ms: int | None = None
+
+    def start(self) -> None:
+        threading.Thread(target=self._run, name="chainlink-twap", daemon=True).start()
+
+    def _run(self) -> None:
+        asyncio.run(self._consume())
+
+    async def _consume(self) -> None:
+        from polymarket import AsyncPublicClient
+        from polymarket.streams import CryptoPricesChainlinkTwapSpec
+        async with AsyncPublicClient() as client:
+            async with await client.subscribe(
+                CryptoPricesChainlinkTwapSpec(window_seconds=60, symbols=["btc/usd"])
+            ) as stream:
+                async for event in stream:
+                    with self._lock:
+                        self._price = float(event.payload.value)
+                        self._timestamp_ms = int(event.payload.timestamp)
+
+    def latest(self, max_age_seconds: int) -> float | None:
+        with self._lock:
+            if self._price is None or self._timestamp_ms is None:
+                return None
+            if time.time() - self._timestamp_ms / 1000 > max_age_seconds:
+                return None
+            return self._price
+
+
 class PolymarketBot:
     def __init__(self, config: BotConfig) -> None:
         config.validate()
@@ -95,15 +141,17 @@ class PolymarketBot:
         self.state = self._load_state()
         self.known_market_ids: set[str] = set()
         self._client: Any | None = None
+        self.twap_feed = ChainlinkTwapFeed()
 
     def _load_state(self) -> dict[str, Any]:
         if not self.config.state_file.exists():
-            return {"entered_market_ids": [], "open_trades": {}, "settlements": {}}
+            return {"entered_market_ids": [], "open_trades": {}, "settlements": {}, "price_to_beat": {}}
         try:
             data = json.loads(self.config.state_file.read_text(encoding="utf-8"))
             data.setdefault("entered_market_ids", [])
             data.setdefault("open_trades", {})
             data.setdefault("settlements", {})
+            data.setdefault("price_to_beat", {})
             return data
         except (OSError, json.JSONDecodeError) as exc:
             raise RuntimeError(f"Cannot safely load state file {self.config.state_file}: {exc}") from exc
@@ -185,9 +233,33 @@ class PolymarketBot:
             outcomes = tuple(Outcome(str(name), str(token)) for name, token in zip(names, token_ids))
             markets.append(Market(
                 market_id, str(raw.get("id") or ""), str(raw.get("question") or raw.get("title") or market_id),
-                end_time, outcomes,
+                datetime.fromtimestamp(window_start, timezone.utc), end_time, outcomes,
             ))
         return markets
+
+    def capture_price_to_beat(self, market: Market) -> None:
+        """Save the closest available official 60s Chainlink TWAP at window opening."""
+        if market.market_id in self.state["price_to_beat"]:
+            return
+        if (datetime.now(timezone.utc) - market.start_time).total_seconds() > self.config.reference_capture_delay_seconds:
+            return
+        if price := self.twap_feed.latest(self.config.twap_max_age_seconds):
+            self.state["price_to_beat"][market.market_id] = price
+            self._save_state()
+
+    def size_for_difference(self, market: Market) -> tuple[float, float, float, float] | None:
+        reference = self.state["price_to_beat"].get(market.market_id)
+        current = self.twap_feed.latest(self.config.twap_max_age_seconds)
+        if reference is None or current is None:
+            return None
+        difference = abs(current - float(reference))
+        if difference > self.config.difference_100_usdc_threshold:
+            size = self.config.difference_100_trade_size_usdc
+        elif difference > self.config.difference_10_usdc_threshold:
+            size = self.config.difference_10_trade_size_usdc
+        else:
+            size = self.config.trade_size_usdc
+        return size, difference, float(reference), current
 
     def client(self) -> Any:
         if self._client is not None:
@@ -289,9 +361,14 @@ class PolymarketBot:
             self._record_skip(market, outcome, price, remaining, "daily_loss_circuit_breaker")
             self.log.critical("Daily loss circuit breaker is active; no new trades today.")
             return
-        self._enter(market, outcome, price, remaining)
+        sizing = self.size_for_difference(market)
+        if sizing is None:
+            self._record_skip(market, outcome, price, remaining, "price_to_beat_or_current_price_unavailable")
+            return
+        self._enter(market, outcome, price, remaining, *sizing)
 
-    def _enter(self, market: Market, outcome: Outcome, price: float, remaining: float) -> None:
+    def _enter(self, market: Market, outcome: Outcome, price: float, remaining: float, size_usdc: float,
+               price_difference_usdc: float, price_to_beat: float, current_btc_price: float) -> None:
         base = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "mode": self.config.mode,
@@ -300,7 +377,10 @@ class PolymarketBot:
             "token_id": outcome.token_id,
             "outcome": outcome.name,
             "price": price,
-            "size_usdc": self.config.trade_size_usdc,
+            "size_usdc": size_usdc,
+            "price_difference_usdc": price_difference_usdc,
+            "price_to_beat": price_to_beat,
+            "current_btc_price": current_btc_price,
             "market_end_time": market.end_time.isoformat(),
             "seconds_remaining": remaining,
         }
@@ -313,10 +393,10 @@ class PolymarketBot:
             self.log.info("PAPER fill: %s %s at $%.3f", outcome.name, market.market_id, price)
             return
 
-        # FOK at the observed price preserves the $1 budget and cannot fill at a worse later price.
+        # FOK at the observed price preserves the selected budget and cannot fill at a worse later price.
         from py_clob_client.clob_types import OrderArgs, OrderType
         from py_clob_client.order_builder.constants import BUY
-        shares = self.config.trade_size_usdc / price
+        shares = size_usdc / price
         order = OrderArgs(token_id=outcome.token_id, price=price, size=shares, side=BUY)
         response = self.client().post_order(self.client().create_order(order), OrderType.FOK)
         # FOK allows conservative accounting at the observed price even if it receives price improvement.
@@ -334,6 +414,7 @@ class PolymarketBot:
     def run_forever(self) -> None:
         self.log.info("Starting bot in %s mode; no automatic mode switching is possible.", self.config.mode)
         self.events.write("startup", mode=self.config.mode, config=asdict(self.config))
+        self.twap_feed.start()
         failures = 0
         while True:
             try:
@@ -345,6 +426,7 @@ class PolymarketBot:
                     self.log.info("%d market window(s) rolled off.", len(rolled_off))
                 self.known_market_ids = current_ids
                 for market in markets:
+                    self.capture_price_to_beat(market)
                     self.consider_market(market)
                 failures = 0
                 time.sleep(self.config.poll_interval_seconds)
