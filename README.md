@@ -39,8 +39,10 @@ export TIME_THRESHOLD_SECONDS=150
 export TRADE_SIZE_USDC=1.00
 export DIFFERENCE_10_USDC_THRESHOLD=30
 export DIFFERENCE_100_USDC_THRESHOLD=50
+export DIFFERENCE_250_USDC_THRESHOLD=100
 export DIFFERENCE_10_TRADE_SIZE_USDC=10
 export DIFFERENCE_100_TRADE_SIZE_USDC=100
+export DIFFERENCE_250_TRADE_SIZE_USDC=250
 export MAX_DAILY_LOSS_USDC=10.00
 export POLL_INTERVAL_SECONDS=5
 export MAX_CONSECUTIVE_ERRORS=8
@@ -122,6 +124,7 @@ For a qualifying entry, the bot compares the current BTC/USD 60-second TWAP
 with the 60-second TWAP captured at the beginning of the market. Both values
 come from Polymarket RTDS's official relay of the market's declared Chainlink
 source. It uses the absolute dollar difference to select the order size:
-greater than $50 uses $100, greater than $30 uses $10, and all other
-qualifying entries use $1. If the opening reference or a fresh current TWAP is
-unavailable, it logs the skipped opportunity rather than guessing a size.
+greater than $100 uses $250, greater than $50 uses $100, greater than $30 uses
+$10, and all other qualifying entries use $1. If the opening reference or a
+fresh current TWAP is unavailable, it logs the skipped opportunity rather than
+guessing a size.
