@@ -305,7 +305,8 @@ class PolymarketBot:
         )
 
     def circuit_breaker_tripped(self) -> bool:
-        return self.daily_loss() >= self.config.max_daily_loss_usdc
+        # Paper testing must continue collecting simulated results; only live funds use this stop.
+        return self.config.mode == "LIVE" and self.daily_loss() >= self.config.max_daily_loss_usdc
 
     def sync_settlements(self) -> None:
         """Record resolved local positions so the daily-loss breaker applies in both modes."""

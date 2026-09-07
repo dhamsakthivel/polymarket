@@ -112,7 +112,8 @@ if the market moves before submission; in that case the FOK order is rejected.
 
 The daily-loss circuit breaker sums locally observed resolved losses for the
 current UTC day and prevents new entries after `MAX_DAILY_LOSS_USDC`. It
-applies in both modes. Transient failures use exponential backoff; after the
+applies only in LIVE mode. PAPER mode deliberately continues to collect
+simulated trade results. Transient failures use exponential backoff; after the
 configured consecutive-error threshold the process exits with a critical log
 instead of silently retrying indefinitely.
 
