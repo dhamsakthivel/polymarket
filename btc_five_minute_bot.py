@@ -481,6 +481,10 @@ class PolymarketBot:
             self.events.write("skipped_opportunity", **base, reason="live_order_not_accepted")
 
     def run_forever(self) -> None:
+        # Import both SDKs on the main thread before RTDS starts, avoiding Python import-lock races.
+        self.client()
+        from polymarket import AsyncPublicClient  # noqa: F401
+        from polymarket.streams import CryptoPricesChainlinkTwapSpec  # noqa: F401
         self.log.info("Starting bot in %s mode; no automatic mode switching is possible.", self.config.mode)
         self.events.write("startup", mode=self.config.mode, config=asdict(self.config))
         self.twap_feed.start()
