@@ -33,12 +33,20 @@ class BotConfig:
     price_threshold: float = float(os.getenv("PRICE_THRESHOLD", "0.80"))
     time_threshold_seconds: int = int(os.getenv("TIME_THRESHOLD_SECONDS", "150"))
     trade_size_usdc: float = float(os.getenv("TRADE_SIZE_USDC", "1.00"))
-    difference_10_usdc_threshold: float = float(os.getenv("DIFFERENCE_10_USDC_THRESHOLD", "30"))
-    difference_100_usdc_threshold: float = float(os.getenv("DIFFERENCE_100_USDC_THRESHOLD", "50"))
-    difference_250_usdc_threshold: float = float(os.getenv("DIFFERENCE_250_USDC_THRESHOLD", "100"))
+    difference_5_usdc_threshold: float = float(os.getenv("DIFFERENCE_5_USDC_THRESHOLD", "30"))
+    difference_10_usdc_threshold: float = float(os.getenv("DIFFERENCE_10_USDC_THRESHOLD", "50"))
+    difference_25_usdc_threshold: float = float(os.getenv("DIFFERENCE_25_USDC_THRESHOLD", "65"))
+    difference_50_usdc_threshold: float = float(os.getenv("DIFFERENCE_50_USDC_THRESHOLD", "80"))
+    difference_100_usdc_threshold: float = float(os.getenv("DIFFERENCE_100_USDC_THRESHOLD", "100"))
+    difference_250_usdc_threshold: float = float(os.getenv("DIFFERENCE_250_USDC_THRESHOLD", "120"))
+    difference_500_usdc_threshold: float = float(os.getenv("DIFFERENCE_500_USDC_THRESHOLD", "150"))
+    difference_5_trade_size_usdc: float = float(os.getenv("DIFFERENCE_5_TRADE_SIZE_USDC", "5"))
     difference_10_trade_size_usdc: float = float(os.getenv("DIFFERENCE_10_TRADE_SIZE_USDC", "10"))
+    difference_25_trade_size_usdc: float = float(os.getenv("DIFFERENCE_25_TRADE_SIZE_USDC", "25"))
+    difference_50_trade_size_usdc: float = float(os.getenv("DIFFERENCE_50_TRADE_SIZE_USDC", "50"))
     difference_100_trade_size_usdc: float = float(os.getenv("DIFFERENCE_100_TRADE_SIZE_USDC", "100"))
     difference_250_trade_size_usdc: float = float(os.getenv("DIFFERENCE_250_TRADE_SIZE_USDC", "250"))
+    difference_500_trade_size_usdc: float = float(os.getenv("DIFFERENCE_500_TRADE_SIZE_USDC", "500"))
     reference_capture_delay_seconds: int = int(os.getenv("REFERENCE_CAPTURE_DELAY_SECONDS", "15"))
     twap_max_age_seconds: int = int(os.getenv("TWAP_MAX_AGE_SECONDS", "30"))
     max_daily_loss_usdc: float = float(os.getenv("MAX_DAILY_LOSS_USDC", "10.00"))
@@ -63,8 +71,12 @@ class BotConfig:
             raise ValueError("price threshold must be in (0, 1]")
         if self.time_threshold_seconds < 0 or self.trade_size_usdc <= 0:
             raise ValueError("time threshold must be non-negative and trade size positive")
-        if not self.difference_10_usdc_threshold < self.difference_100_usdc_threshold < self.difference_250_usdc_threshold:
-            raise ValueError("difference thresholds must increase from $10 through $250 tiers")
+        thresholds = (self.difference_5_usdc_threshold, self.difference_10_usdc_threshold,
+                      self.difference_25_usdc_threshold, self.difference_50_usdc_threshold,
+                      self.difference_100_usdc_threshold, self.difference_250_usdc_threshold,
+                      self.difference_500_usdc_threshold)
+        if thresholds != tuple(sorted(thresholds)) or len(set(thresholds)) != len(thresholds):
+            raise ValueError("difference thresholds must be strictly increasing")
         if self.max_daily_loss_usdc < 0 or self.max_consecutive_errors < 1:
             raise ValueError("max daily loss must be non-negative and error threshold positive")
 
@@ -261,12 +273,20 @@ class PolymarketBot:
         if reference is None or current is None:
             return None
         difference = abs(current - float(reference))
-        if difference > self.config.difference_250_usdc_threshold:
+        if difference > self.config.difference_500_usdc_threshold:
+            size = self.config.difference_500_trade_size_usdc
+        elif difference >= self.config.difference_250_usdc_threshold:
             size = self.config.difference_250_trade_size_usdc
-        elif difference > self.config.difference_100_usdc_threshold:
+        elif difference >= self.config.difference_100_usdc_threshold:
             size = self.config.difference_100_trade_size_usdc
-        elif difference > self.config.difference_10_usdc_threshold:
+        elif difference >= self.config.difference_50_usdc_threshold:
+            size = self.config.difference_50_trade_size_usdc
+        elif difference >= self.config.difference_25_usdc_threshold:
+            size = self.config.difference_25_trade_size_usdc
+        elif difference >= self.config.difference_10_usdc_threshold:
             size = self.config.difference_10_trade_size_usdc
+        elif difference >= self.config.difference_5_usdc_threshold:
+            size = self.config.difference_5_trade_size_usdc
         else:
             size = self.config.trade_size_usdc
         return size, difference, float(reference), current
