@@ -138,10 +138,15 @@ class ChainlinkTwapFeed:
             async with await client.subscribe(
                 CryptoPricesChainlinkTwapSpec(window_seconds=60, symbols=["btc/usd"])
             ) as stream:
+                logging.getLogger("polymarket_bot").info("Connected to Polymarket RTDS BTC/USD 60s TWAP.")
+                received_first_update = False
                 async for event in stream:
                     with self._lock:
                         self._price = float(event.payload.value)
                         self._timestamp_ms = int(event.payload.timestamp)
+                    if not received_first_update:
+                        logging.getLogger("polymarket_bot").info("Received first fresh Polymarket RTDS BTC TWAP.")
+                        received_first_update = True
 
     def latest(self, max_age_seconds: int) -> float | None:
         with self._lock:
@@ -483,6 +488,9 @@ class PolymarketBot:
         while True:
             try:
                 markets = self.discover_markets()
+                # Capture the opening reference before any potentially slow recovery/settlement calls.
+                for market in markets:
+                    self.capture_price_to_beat(market)
                 self.recover_one_trade_from_log()
                 self.sync_settlements()
                 current_ids = {market.market_id for market in markets}
@@ -491,7 +499,6 @@ class PolymarketBot:
                     self.log.info("%d market window(s) rolled off.", len(rolled_off))
                 self.known_market_ids = current_ids
                 for market in markets:
-                    self.capture_price_to_beat(market)
                     self.consider_market(market)
                 failures = 0
                 time.sleep(self.config.poll_interval_seconds)
