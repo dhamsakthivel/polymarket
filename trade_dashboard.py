@@ -72,7 +72,16 @@ def dashboard_data(directory: Path) -> dict[str, Any]:
         state = json.loads((directory / "bot_state.json").read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
         pass
-    settlements = state.get("settlements", {}) if isinstance(state, dict) else {}
+    settlements = dict(state.get("settlements", {})) if isinstance(state, dict) else {}
+    # State can be recreated after a crash; event logs remain the durable result history.
+    for event in events:
+        if event.get("event") == "market_settled" and event.get("market_id"):
+            settlements[event["market_id"]] = {
+                "settled_at": event.get("settled_at"),
+                "pnl_usdc": event.get("pnl_usdc", 0),
+                "final_price": event.get("final_price"),
+                "final_outcome": event.get("final_outcome"),
+            }
     trades = sorted(paper + live, key=lambda item: str(item.get("timestamp", "")), reverse=True)
     for trade in trades:
         if market_id := trade.get("market_id"):
