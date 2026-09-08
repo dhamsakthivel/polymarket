@@ -196,6 +196,38 @@ class PolymarketBot:
         }
         self._save_state()  # persist before the next poll to prevent restart duplicates
 
+    def recover_one_trade_from_log(self) -> None:
+        """Recover one prior fill per poll, avoiding a burst of Gamma requests after restart."""
+        if not self.config.trade_log.exists():
+            return
+        for line in self.config.trade_log.read_text(encoding="utf-8").splitlines():
+            try:
+                record = json.loads(line)
+                market_id = record["market_id"]
+            except (json.JSONDecodeError, KeyError):
+                continue
+            if market_id in self.state["settlements"] or market_id in self.state["open_trades"]:
+                continue
+            gamma_id = record.get("gamma_id")
+            if not gamma_id:
+                rows = self._http_json(f"{self.config.gamma_url}?{urlencode({'condition_ids': market_id})}")
+                if not isinstance(rows, list) or not rows:
+                    continue
+                gamma_id = str(rows[0].get("id", ""))
+            if not gamma_id:
+                continue
+            self.state["open_trades"][market_id] = {
+                "gamma_id": gamma_id,
+                "outcome": record["outcome"],
+                "filled_price": record.get("filled_price", record["price"]),
+                "size_usdc": record["size_usdc"],
+            }
+            if market_id not in self.state["entered_market_ids"]:
+                self.state["entered_market_ids"].append(market_id)
+            self._save_state()
+            self.events.write("trade_state_recovered", market_id=market_id, gamma_id=gamma_id)
+            return
+
     def _http_json(self, url: str) -> Any:
         request = Request(url, headers={"Accept": "application/json", "User-Agent": "btc-5m-bot/1.0"})
         with urlopen(request, timeout=15) as response:
@@ -404,6 +436,7 @@ class PolymarketBot:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "mode": self.config.mode,
             "market_id": market.market_id,
+            "gamma_id": market.gamma_id,
             "question": market.question,
             "token_id": outcome.token_id,
             "outcome": outcome.name,
@@ -450,6 +483,7 @@ class PolymarketBot:
         while True:
             try:
                 markets = self.discover_markets()
+                self.recover_one_trade_from_log()
                 self.sync_settlements()
                 current_ids = {market.market_id for market in markets}
                 rolled_off = self.known_market_ids - current_ids

@@ -118,6 +118,11 @@ if the market moves before submission; in that case the FOK order is rejected.
 - `bot_state.json`: persistent one-entry-per-market tracking and locally
   observed settled P/L. Keep this file when restarting.
 
+If `bot_state.json` is missing or was recreated, the bot restores one prior
+fill per poll from the active mode's trade log and then checks it for
+resolution. This deliberately rate-limits recovery rather than flooding Gamma
+with requests after a restart.
+
 The daily-loss circuit breaker sums locally observed resolved losses for the
 current UTC day and prevents new entries after `MAX_DAILY_LOSS_USDC`. It
 applies only in LIVE mode. PAPER mode deliberately continues to collect
