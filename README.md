@@ -1,7 +1,7 @@
 # Polymarket BTC 5-minute entry bot
 
 An entry-only Python 3.11+ bot for Polymarket BTC Up/Down 5-minute markets.
-It buys the leading outcome only when its best buy price is at least $0.80 and
+It buys the leading outcome only when its best buy price is at least $0.75 and
 there are 150 seconds or fewer left in the market. It allows one entry per
 market window and never changes between paper and live modes by itself.
 Market discovery directly queries Polymarket Gamma for the current
@@ -34,7 +34,7 @@ defaults. Do not put private keys or API credentials in source code.
 export POLYMARKET_BOT_MODE=PAPER
 
 # Optional strategy/operations settings (shown with their defaults).
-export PRICE_THRESHOLD=0.80
+export PRICE_THRESHOLD=0.75
 export TIME_THRESHOLD_SECONDS=150
 export TRADE_SIZE_USDC=1.00
 export DIFFERENCE_5_USDC_THRESHOLD=30
@@ -130,7 +130,7 @@ simulated trade results. Transient failures use exponential backoff; after the
 configured consecutive-error threshold the process exits with a critical log
 instead of silently retrying indefinitely.
 
-During every final-150-second market check, a leading price below 80¢ is
+During every final-150-second market check, a leading price below 75¢ is
 recorded as an `entry_unavailable` event. This makes missed entries visible in
 the dashboard and event log without changing the entry rule.
 

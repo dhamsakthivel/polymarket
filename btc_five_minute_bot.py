@@ -30,7 +30,7 @@ class BotConfig:
 
     # SAFETY: this is the only mode switch. The bot never changes it itself.
     mode: str = os.getenv("POLYMARKET_BOT_MODE", "PAPER").upper()  # PAPER or LIVE
-    price_threshold: float = float(os.getenv("PRICE_THRESHOLD", "0.80"))
+    price_threshold: float = float(os.getenv("PRICE_THRESHOLD", "0.75"))
     time_threshold_seconds: int = int(os.getenv("TIME_THRESHOLD_SECONDS", "150"))
     trade_size_usdc: float = float(os.getenv("TRADE_SIZE_USDC", "1.00"))
     difference_5_usdc_threshold: float = float(os.getenv("DIFFERENCE_5_USDC_THRESHOLD", "30"))
