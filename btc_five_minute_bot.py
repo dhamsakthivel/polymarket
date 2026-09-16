@@ -32,6 +32,8 @@ class BotConfig:
     mode: str = os.getenv("POLYMARKET_BOT_MODE", "PAPER").upper()  # PAPER or LIVE
     price_threshold: float = float(os.getenv("PRICE_THRESHOLD", "0.75"))
     time_threshold_seconds: int = int(os.getenv("TIME_THRESHOLD_SECONDS", "150"))
+    high_difference_up_time_seconds: int = int(os.getenv("HIGH_DIFFERENCE_UP_TIME_SECONDS", "210"))
+    high_difference_up_threshold_usdc: float = float(os.getenv("HIGH_DIFFERENCE_UP_THRESHOLD_USDC", "200"))
     trade_size_usdc: float = float(os.getenv("TRADE_SIZE_USDC", "1.00"))
     difference_5_usdc_threshold: float = float(os.getenv("DIFFERENCE_5_USDC_THRESHOLD", "30"))
     difference_10_usdc_threshold: float = float(os.getenv("DIFFERENCE_10_USDC_THRESHOLD", "50"))
@@ -71,6 +73,8 @@ class BotConfig:
             raise ValueError("price threshold must be in (0, 1]")
         if self.time_threshold_seconds < 0 or self.trade_size_usdc <= 0:
             raise ValueError("time threshold must be non-negative and trade size positive")
+        if self.high_difference_up_time_seconds < self.time_threshold_seconds:
+            raise ValueError("high-difference UP time must be at least the normal entry window")
         thresholds = (self.difference_5_usdc_threshold, self.difference_10_usdc_threshold,
                       self.difference_25_usdc_threshold, self.difference_50_usdc_threshold,
                       self.difference_100_usdc_threshold, self.difference_250_usdc_threshold,
@@ -419,6 +423,20 @@ class PolymarketBot:
         if remaining < 0:
             self._record_skip(market, outcome, price, remaining, "market_expired")
             return
+        sizing = self.size_for_difference(market)
+        # Special rule: from 3:30 remaining, a >=$200 difference buys UP at its available price.
+        # It intentionally bypasses the normal leading-outcome and 75c gates.
+        if remaining <= self.config.high_difference_up_time_seconds and sizing is not None and \
+                sizing[1] >= self.config.high_difference_up_threshold_usdc:
+            up_outcome, up_price = next(((item, item_price) for item, item_price in prices
+                                         if item.name.casefold() == "up"), (None, None))
+            if up_outcome is not None and up_price is not None and up_price > 0:
+                if self.circuit_breaker_tripped():
+                    self._record_skip(market, up_outcome, up_price, remaining, "daily_loss_circuit_breaker")
+                    self.log.critical("Daily loss circuit breaker is active; no new trades today.")
+                    return
+                self._enter(market, up_outcome, up_price, remaining, *sizing, entry_rule="high_difference_up")
+                return
         if remaining > self.config.time_threshold_seconds:
             return
         # Exact entry gate: from 150 seconds through expiry, buy the leader at any price >= threshold.
@@ -429,14 +447,14 @@ class PolymarketBot:
             self._record_skip(market, outcome, price, remaining, "daily_loss_circuit_breaker")
             self.log.critical("Daily loss circuit breaker is active; no new trades today.")
             return
-        sizing = self.size_for_difference(market)
         if sizing is None:
             self._record_skip(market, outcome, price, remaining, "price_to_beat_or_current_price_unavailable")
             return
         self._enter(market, outcome, price, remaining, *sizing)
 
     def _enter(self, market: Market, outcome: Outcome, price: float, remaining: float, size_usdc: float,
-               price_difference_usdc: float, price_to_beat: float, current_btc_price: float) -> None:
+               price_difference_usdc: float, price_to_beat: float, current_btc_price: float,
+               entry_rule: str = "normal_leading_outcome") -> None:
         base = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "mode": self.config.mode,
@@ -450,6 +468,7 @@ class PolymarketBot:
             "price_difference_usdc": price_difference_usdc,
             "price_to_beat": price_to_beat,
             "current_btc_price": current_btc_price,
+            "entry_rule": entry_rule,
             "market_end_time": market.end_time.isoformat(),
             "seconds_remaining": remaining,
         }

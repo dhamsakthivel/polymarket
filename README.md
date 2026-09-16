@@ -36,6 +36,8 @@ export POLYMARKET_BOT_MODE=PAPER
 # Optional strategy/operations settings (shown with their defaults).
 export PRICE_THRESHOLD=0.75
 export TIME_THRESHOLD_SECONDS=150
+export HIGH_DIFFERENCE_UP_TIME_SECONDS=210
+export HIGH_DIFFERENCE_UP_THRESHOLD_USDC=200
 export TRADE_SIZE_USDC=1.00
 export DIFFERENCE_5_USDC_THRESHOLD=30
 export DIFFERENCE_10_USDC_THRESHOLD=50
@@ -142,3 +144,8 @@ below $30 uses $1; $30–<$50 uses $5; $50–<$65 uses $10; $65–<$80 uses $25;
 $80–<$100 uses $50; $100–<$120 uses $100; $120–$150 uses $250; and above
 $150 uses $500. If the opening reference or a fresh current TWAP is
 unavailable, it logs the skipped opportunity rather than guessing a size.
+
+Additional high-difference rule: from 3:30 remaining until expiry, an absolute
+BTC difference of $200 or more buys the **UP** token at its available buy
+price, even if it is not leading or below 75¢. It uses the existing $500 tier
+and still permits only one entry per market window.
