@@ -9,6 +9,8 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 PAGE = """<!doctype html>
@@ -21,7 +23,8 @@ table{border-collapse:collapse;width:100%;background:#192231}th,td{text-align:le
 </style></head><body>
 <h1>BTC Up/Down 5m bot</h1><div class="muted" id="updated">Loading local log files…</div>
 <div class="cards"><div class="card">Accepted fills<div class="value" id="fills">0</div></div><div class="card">Unavailable entries<div class="value" id="unavailable">0</div></div><div class="card">Resolved P/L<div class="value" id="pnl">$0.00</div></div><div class="card">Open positions<div class="value" id="open">0</div></div></div>
-<h2>Trades and results</h2><table><thead><tr><th>Time (ADT/AST)</th><th>Entry buy</th><th>Price</th><th>BTC difference (signed)</th><th>Size</th><th>Final outcome</th><th>P/L / status</th></tr></thead><tbody id="trades"></tbody></table>
+<h2>Day-wise summary</h2><table><thead><tr><th>Date (ADT/AST)</th><th>Trades</th><th>Total lot size</th><th>Wins</th><th>Losses</th><th>Settled P/L</th></tr></thead><tbody id="daily"></tbody></table>
+<h2>Trades and results</h2><table><thead><tr><th>Time (ADT/AST)</th><th>Entry buy</th><th>Price</th><th>BTC difference (signed)</th><th>Lot size</th><th>Final outcome</th><th>P/L / status</th></tr></thead><tbody id="trades"></tbody></table>
 <h2>Unavailable entries and operational events</h2><table><thead><tr><th>Time (ADT/AST)</th><th>Event</th><th>Price / time left</th><th>Reason</th></tr></thead><tbody id="events"></tbody></table>
 <script>
 const dollar=v=>'$'+Number(v||0).toFixed(2), text=v=>v==null?'':String(v);
@@ -39,6 +42,8 @@ async function refresh(){
   document.querySelector('#fills').textContent=d.summary.fills; document.querySelector('#unavailable').textContent=d.summary.unavailable;
   document.querySelector('#pnl').textContent=dollar(d.summary.realized_pnl); document.querySelector('#pnl').className=d.summary.realized_pnl<0?'bad':'good';
   document.querySelector('#open').textContent=d.summary.open_positions; document.querySelector('#updated').textContent='Reading '+d.directory+' • refreshed '+new Date().toLocaleTimeString();
+  const daily=document.querySelector('#daily'); daily.replaceChildren();
+  for(const x of d.daily_summary){const row=document.createElement('tr'); cell(row,x.date); cell(row,x.trades); cell(row,dollar(x.lot_size_usdc)); cell(row,x.wins); cell(row,x.losses); cell(row,dollar(x.realized_pnl),x.realized_pnl<0?'bad':'good'); daily.appendChild(row)}
   const trades=document.querySelector('#trades'); trades.replaceChildren();
   for(const x of d.trades){const row=document.createElement('tr'); cell(row,adt(x.timestamp)); cell(row,(x.outcome||'')+' buy • '+(x.token_id||'')); cell(row,dollar(x.filled_price||x.price)); cell(row,x.actual_price_difference_usdc==null?(x.price_difference_usdc==null?'—':dollar(x.price_difference_usdc)):dollar(x.actual_price_difference_usdc)); cell(row,dollar(x.size_usdc)); cell(row,finalOutcome(x)); const result=x.settlement?dollar(x.settlement.pnl_usdc):(x.status||'accepted'); cell(row,result,x.settlement?.pnl_usdc<0?'bad':'good'); trades.appendChild(row)}
   const events=document.querySelector('#events'); events.replaceChildren();
@@ -86,6 +91,22 @@ def dashboard_data(directory: Path) -> dict[str, Any]:
     for trade in trades:
         if market_id := trade.get("market_id"):
             trade["settlement"] = settlements.get(market_id)
+    atlantic = ZoneInfo("America/Halifax")
+    daily: dict[str, dict[str, Any]] = {}
+    for trade in trades:
+        try:
+            date = datetime.fromisoformat(str(trade["timestamp"]).replace("Z", "+00:00")).astimezone(atlantic).date().isoformat()
+        except (KeyError, ValueError):
+            continue
+        row = daily.setdefault(date, {"date": date, "trades": 0, "lot_size_usdc": 0.0,
+                                      "wins": 0, "losses": 0, "realized_pnl": 0.0})
+        row["trades"] += 1
+        row["lot_size_usdc"] += float(trade.get("size_usdc", 0))
+        if settlement := trade.get("settlement"):
+            pnl = float(settlement.get("pnl_usdc", 0))
+            row["realized_pnl"] += pnl
+            row["wins"] += pnl > 0
+            row["losses"] += pnl < 0
     relevant_events = [
         event for event in events
         if event.get("event") in {"entry_unavailable", "skipped_opportunity", "operational_error", "critical_stop"}
@@ -98,6 +119,7 @@ def dashboard_data(directory: Path) -> dict[str, Any]:
             "realized_pnl": sum(float(item.get("pnl_usdc", 0)) for item in settlements.values()),
             "open_positions": len(state.get("open_trades", {})) if isinstance(state, dict) else 0,
         },
+        "daily_summary": sorted(daily.values(), key=lambda item: item["date"], reverse=True),
         "trades": trades[:200],
         "events": sorted(relevant_events, key=lambda item: str(item.get("timestamp", "")), reverse=True)[:300],
     }

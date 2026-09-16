@@ -90,6 +90,11 @@ place or modify trades. To use a different log folder or port:
 python3 trade_dashboard.py --directory /path/to/bot/logs --port 8081
 ```
 
+The day-wise summary groups trades by their Atlantic-time entry date and shows
+entry count, total lot size (the total USDC committed), settled wins/losses,
+and settled P/L. Unresolved trades are included in the lot-size count but not
+in wins, losses, or P/L.
+
 ## Switch to live trading deliberately
 
 Only change the explicit mode variable when you intend to submit real orders:
