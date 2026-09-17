@@ -136,11 +136,15 @@ def make_handler(directory: Path) -> type[BaseHTTPRequestHandler]:
                 self._respond(HTTPStatus.NOT_FOUND, b"Not found", "text/plain; charset=utf-8")
 
         def _respond(self, status: HTTPStatus, body: bytes, content_type: str) -> None:
-            self.send_response(status)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                # A browser refresh or closed local tab can abort its request; keep serving.
+                return
 
         def log_message(self, _format: str, *_args: object) -> None:
             return
