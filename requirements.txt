@@ -1,0 +1,3 @@
+py-clob-client==0.34.6
+polymarket-client==0.9.0
+tzdata==2026.4
