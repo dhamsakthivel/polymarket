@@ -95,6 +95,16 @@ entry count, total lot size (the total USDC committed), settled wins/losses,
 and settled P/L. Unresolved trades are included in the lot-size count but not
 in wins, losses, or P/L.
 
+The dashboard also displays estimated INR P/L using ₹83.00 per USDC by
+default. This is a manual conversion rate, not a live FX quote. Set it before
+starting the dashboard when needed:
+
+```bash
+INR_PER_USDC=84.25 python3 trade_dashboard.py
+```
+
+Alternatively, use `python3 trade_dashboard.py --inr-rate 84.25`.
+
 ## Switch to live trading deliberately
 
 Only change the explicit mode variable when you intend to submit real orders:
