@@ -21,9 +21,10 @@ PAGE = """<!doctype html>
 body{font:14px system-ui,sans-serif;margin:24px;background:#10151f;color:#e7edf7}h1{margin-bottom:4px}
 .muted{color:#aab7ca}.cards{display:flex;gap:12px;flex-wrap:wrap;margin:20px 0}.card{background:#192231;border-radius:8px;padding:14px;min-width:150px}.value{font-size:24px;font-weight:700}
 table{border-collapse:collapse;width:100%;background:#192231}th,td{text-align:left;padding:9px;border-bottom:1px solid #2d3a4e;vertical-align:top}th{color:#aab7ca}code{white-space:pre-wrap;word-break:break-word}.good{color:#61d69b}.bad{color:#ff8b8b}
+button{border:0;border-radius:6px;padding:9px 12px;font-weight:700;cursor:pointer}.on{background:#61d69b;color:#102018}.off{background:#ff8b8b;color:#290d0d}
 </style></head><body>
 <h1>BTC Up/Down 5m bot</h1><div class="muted" id="updated">Loading local log files…</div>
-<div class="cards"><div class="card">Accepted fills<div class="value" id="fills">0</div></div><div class="card">Unavailable entries<div class="value" id="unavailable">0</div></div><div class="card">Resolved P/L (USDC)<div class="value" id="pnl">$0.00</div></div><div class="card">Resolved P/L (INR)<div class="value" id="pnl-inr">₹0.00</div></div><div class="card">Open positions<div class="value" id="open">0</div></div></div>
+<div class="cards"><div class="card">New entries<div class="value" id="trading-status">Loading…</div><button id="trading-toggle" disabled>Loading…</button></div><div class="card">Accepted fills<div class="value" id="fills">0</div></div><div class="card">Unavailable entries<div class="value" id="unavailable">0</div></div><div class="card">Resolved P/L (USDC)<div class="value" id="pnl">$0.00</div></div><div class="card">Resolved P/L (INR)<div class="value" id="pnl-inr">₹0.00</div></div><div class="card">Open positions<div class="value" id="open">0</div></div></div>
 <h2>Day-wise summary</h2><table><thead><tr><th>Date (ADT/AST)</th><th>Trades</th><th>Total lot size</th><th>Wins</th><th>Losses</th><th>Settled P/L (USDC)</th><th>Settled P/L (INR)</th></tr></thead><tbody id="daily"></tbody></table>
 <h2>Trades and results</h2><table><thead><tr><th>Time (ADT/AST)</th><th>Entry buy</th><th>Price</th><th>BTC difference (signed)</th><th>Lot size</th><th>Final outcome</th><th>P/L (USDC) / status</th><th>P/L (INR)</th></tr></thead><tbody id="trades"></tbody></table>
 <h2>Unavailable entries and operational events</h2><table><thead><tr><th>Time (ADT/AST)</th><th>Event</th><th>Price / time left</th><th>Reason</th></tr></thead><tbody id="events"></tbody></table>
@@ -38,8 +39,20 @@ function finalOutcome(trade){
   return 'Awaiting resolution';
 }
 function cell(row, value, cls=''){let td=document.createElement('td');td.textContent=text(value);td.className=cls;row.appendChild(td)}
+function setTradingControl(enabled){
+  const status=document.querySelector('#trading-status'), button=document.querySelector('#trading-toggle');
+  status.textContent=enabled?'ON':'OFF'; status.className=enabled?'good':'bad';
+  button.textContent=enabled?'Turn off new entries':'Turn on new entries'; button.className=enabled?'off':'on'; button.disabled=false;
+}
+document.querySelector('#trading-toggle').addEventListener('click',async()=>{
+  const button=document.querySelector('#trading-toggle'), enabled=button.className!=='off';
+  button.disabled=true;
+  try {const r=await fetch('/api/trading-enabled',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});if(!r.ok)throw new Error('Unable to save control');setTradingControl((await r.json()).trading_enabled)}
+  catch(e){document.querySelector('#updated').textContent=e.message;button.disabled=false}
+});
 async function refresh(){
   const r=await fetch('/api/data',{cache:'no-store'}); if(!r.ok)throw new Error('Unable to read logs'); const d=await r.json();
+  setTradingControl(d.trading_enabled);
   document.querySelector('#fills').textContent=d.summary.fills; document.querySelector('#unavailable').textContent=d.summary.unavailable;
   document.querySelector('#pnl').textContent=dollar(d.summary.realized_pnl); document.querySelector('#pnl').className=d.summary.realized_pnl<0?'bad':'good';
   document.querySelector('#pnl-inr').textContent=rupee(d.summary.realized_pnl_inr); document.querySelector('#pnl-inr').className=d.summary.realized_pnl_inr<0?'bad':'good';
@@ -70,7 +83,26 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
     return records
 
 
-def dashboard_data(directory: Path, inr_per_usdc: float = 83.0) -> dict[str, Any]:
+def trading_enabled(control_file: Path) -> bool:
+    """Missing flag means enabled; a malformed explicit flag is safe-off."""
+    if not control_file.exists():
+        return True
+    try:
+        control = json.loads(control_file.read_text(encoding="utf-8"))
+        return control.get("trading_enabled") is True
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return False
+
+
+def save_trading_control(control_file: Path, enabled: bool) -> None:
+    temporary = control_file.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"trading_enabled": enabled}, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(control_file)
+
+
+def dashboard_data(directory: Path, inr_per_usdc: float = 83.0,
+                   control_file: Path | None = None) -> dict[str, Any]:
+    control_file = control_file or directory / "bot_control.json"
     paper = read_jsonl(directory / "paper_trades.jsonl")
     live = read_jsonl(directory / "live_trades.jsonl")
     events = read_jsonl(directory / "bot_events.jsonl")
@@ -118,6 +150,7 @@ def dashboard_data(directory: Path, inr_per_usdc: float = 83.0) -> dict[str, Any
     return {
         "directory": str(directory),
         "inr_per_usdc": inr_per_usdc,
+        "trading_enabled": trading_enabled(control_file),
         "summary": {
             "fills": len(trades),
             "unavailable": sum(event.get("event") == "entry_unavailable" for event in events),
@@ -131,15 +164,34 @@ def dashboard_data(directory: Path, inr_per_usdc: float = 83.0) -> dict[str, Any
     }
 
 
-def make_handler(directory: Path, inr_per_usdc: float) -> type[BaseHTTPRequestHandler]:
+def make_handler(directory: Path, inr_per_usdc: float, control_file: Path) -> type[BaseHTTPRequestHandler]:
     class DashboardHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
             if self.path == "/":
                 self._respond(HTTPStatus.OK, PAGE.encode(), "text/html; charset=utf-8")
             elif self.path == "/api/data":
-                self._respond(HTTPStatus.OK, json.dumps(dashboard_data(directory, inr_per_usdc)).encode(), "application/json")
+                self._respond(HTTPStatus.OK, json.dumps(
+                    dashboard_data(directory, inr_per_usdc, control_file)).encode(), "application/json")
             else:
                 self._respond(HTTPStatus.NOT_FOUND, b"Not found", "text/plain; charset=utf-8")
+
+        def do_POST(self) -> None:  # noqa: N802
+            if self.path != "/api/trading-enabled":
+                self._respond(HTTPStatus.NOT_FOUND, b"Not found", "text/plain; charset=utf-8")
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length > 1024:
+                    raise ValueError("request is too large")
+                payload = json.loads(self.rfile.read(length))
+                if not isinstance(payload.get("enabled"), bool):
+                    raise ValueError("enabled must be a boolean")
+                save_trading_control(control_file, payload["enabled"])
+                body = json.dumps({"trading_enabled": payload["enabled"]}).encode()
+                self._respond(HTTPStatus.OK, body, "application/json")
+            except (OSError, ValueError, json.JSONDecodeError):
+                self._respond(HTTPStatus.BAD_REQUEST, b"Invalid trading control request",
+                              "text/plain; charset=utf-8")
 
         def _respond(self, status: HTTPStatus, body: bytes, content_type: str) -> None:
             try:
@@ -164,9 +216,13 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--inr-rate", type=float, default=float(os.getenv("INR_PER_USDC", "83.00")),
                         help="INR value for one USDC (default: INR_PER_USDC or 83.00)")
+    parser.add_argument("--control-file", type=Path, default=None,
+                        help="Shared bot control file (default: bot_control.json in --directory)")
     args = parser.parse_args()
     directory = args.directory.resolve()
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(directory, args.inr_rate))
+    control_file = (args.control_file or directory / "bot_control.json").resolve()
+    server = ThreadingHTTPServer(("127.0.0.1", args.port),
+                                 make_handler(directory, args.inr_rate, control_file))
     print(f"Dashboard: http://127.0.0.1:{args.port} (reading {directory}; ₹{args.inr_rate:.2f}/USDC)")
     try:
         server.serve_forever()

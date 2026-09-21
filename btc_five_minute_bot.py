@@ -60,6 +60,7 @@ class BotConfig:
     chain_id: int = 137
     event_log: Path = Path(os.getenv("EVENT_LOG_FILE", "bot_events.jsonl"))
     state_file: Path = Path(os.getenv("STATE_FILE", "bot_state.json"))
+    control_file: Path = Path(os.getenv("BOT_CONTROL_FILE", "bot_control.json"))
 
     @property
     def trade_log(self) -> Path:
@@ -168,6 +169,25 @@ class PolymarketBot:
         self.known_market_ids: set[str] = set()
         self._client: Any | None = None
         self.twap_feed = ChainlinkTwapFeed()
+        self._last_trading_enabled: bool | None = None
+
+    def trading_enabled(self) -> bool:
+        """Read the dashboard control flag; a malformed explicit flag fails closed."""
+        if not self.config.control_file.exists():
+            return True
+        try:
+            control = json.loads(self.config.control_file.read_text(encoding="utf-8"))
+            return control.get("trading_enabled") is True
+        except (OSError, json.JSONDecodeError, AttributeError):
+            return False
+
+    def sync_trading_control(self) -> None:
+        enabled = self.trading_enabled()
+        if enabled != self._last_trading_enabled:
+            self.events.write("trading_control_changed", enabled=enabled,
+                              control_file=str(self.config.control_file))
+            self.log.info("New entries are %s by dashboard control.", "enabled" if enabled else "disabled")
+            self._last_trading_enabled = enabled
 
     def _load_state(self) -> dict[str, Any]:
         if not self.config.state_file.exists():
@@ -415,6 +435,8 @@ class PolymarketBot:
         remaining = (market.end_time - datetime.now(timezone.utc)).total_seconds()
         if market.market_id in self.entered_market_ids:
             return
+        if not self.trading_enabled():
+            return
         prices = [(outcome, self.best_buy_price(outcome.token_id)) for outcome in market.outcomes]
         outcome, price = max(prices, key=lambda item: item[1])  # leading outcome means highest buy price
         if remaining < 0:
@@ -459,6 +481,11 @@ class PolymarketBot:
     def _enter(self, market: Market, outcome: Outcome, price: float, remaining: float, size_usdc: float,
                price_difference_usdc: float, price_to_beat: float, current_btc_price: float,
                entry_rule: str = "normal_leading_outcome") -> None:
+        # Re-check directly before submitting a paper or live order in case the UI changed mid-poll.
+        if not self.trading_enabled():
+            self.events.write("trade_blocked", market_id=market.market_id, token_id=outcome.token_id,
+                              reason="trading_disabled")
+            return
         base = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "mode": self.config.mode,
@@ -521,6 +548,7 @@ class PolymarketBot:
                     self.capture_price_to_beat(market)
                 self.recover_one_trade_from_log()
                 self.sync_settlements()
+                self.sync_trading_control()
                 current_ids = {market.market_id for market in markets}
                 rolled_off = self.known_market_ids - current_ids
                 if rolled_off:
