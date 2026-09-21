@@ -22,6 +22,7 @@ body{font:14px system-ui,sans-serif;margin:24px;background:#10151f;color:#e7edf7
 .muted{color:#aab7ca}.cards{display:flex;gap:12px;flex-wrap:wrap;margin:20px 0}.card{background:#192231;border-radius:8px;padding:14px;min-width:150px}.value{font-size:24px;font-weight:700}
 table{border-collapse:collapse;width:100%;background:#192231}th,td{text-align:left;padding:9px;border-bottom:1px solid #2d3a4e;vertical-align:top}th{color:#aab7ca}code{white-space:pre-wrap;word-break:break-word}.good{color:#61d69b}.bad{color:#ff8b8b}
 button{border:0;border-radius:6px;padding:9px 12px;font-weight:700;cursor:pointer}.on{background:#61d69b;color:#102018}.off{background:#ff8b8b;color:#290d0d}
+.separator td{background:#26364c;color:#e7edf7;font-weight:700;border-top:12px solid #10151f}
 </style></head><body>
 <h1>BTC Up/Down 5m bot</h1><div class="muted" id="updated">Loading local log files…</div>
 <div class="cards"><div class="card">±$200 contra entries<div class="value" id="contra-status">Loading…</div><button id="contra-toggle" disabled>Loading…</button></div><div class="card">Accepted fills<div class="value" id="fills">0</div></div><div class="card">Unavailable entries<div class="value" id="unavailable">0</div></div><div class="card">Resolved P/L (USDC)<div class="value" id="pnl">$0.00</div></div><div class="card">Resolved P/L (INR)<div class="value" id="pnl-inr">₹0.00</div></div><div class="card">Open positions<div class="value" id="open">0</div></div></div>
@@ -64,7 +65,11 @@ async function refresh(){
   const trades=document.querySelector('#trades'); trades.replaceChildren();
   for(const x of d.trades){const row=document.createElement('tr'); const elapsed=x.elapsed_seconds_since_market_start ?? (x.seconds_remaining==null?null:Math.max(0,300-x.seconds_remaining)); cell(row,adt(x.timestamp)); cell(row,duration(elapsed)); cell(row,(x.outcome||'')+' buy • '+(x.token_id||'')); cell(row,dollar(x.filled_price||x.price)); cell(row,x.actual_price_difference_usdc==null?(x.price_difference_usdc==null?'—':dollar(x.price_difference_usdc)):dollar(x.actual_price_difference_usdc)); cell(row,dollar(x.size_usdc)); cell(row,finalOutcome(x)); const result=x.settlement?dollar(x.settlement.pnl_usdc):(x.status||'accepted'); cell(row,result,x.settlement?.pnl_usdc<0?'bad':'good'); cell(row,x.settlement?rupee(x.settlement.pnl_usdc*d.inr_per_usdc):'—',x.settlement?.pnl_usdc<0?'bad':'good'); trades.appendChild(row)}
   const milestones=document.querySelector('#milestones'); milestones.replaceChildren();
-  for(const x of d.price_milestones){const row=document.createElement('tr'); cell(row,adt(x.timestamp)); cell(row,x.milestone_cents+'¢'); cell(row,x.milestone_outcome); cell(row,dollar(x.up_price)); cell(row,dollar(x.down_price)); cell(row,x.actual_price_difference_usdc==null?'—':dollar(x.actual_price_difference_usdc)); cell(row,duration(x.elapsed_seconds)); cell(row,duration(x.seconds_remaining)); milestones.appendChild(row)}
+  let previousMarketId='';
+  for(const x of d.price_milestones){
+    if(x.market_id!==previousMarketId){const separator=document.createElement('tr'); separator.className='separator'; const label=document.createElement('td'); label.colSpan=8; label.textContent='5-minute market • started '+adt(x.market_start_time); separator.appendChild(label); milestones.appendChild(separator); previousMarketId=x.market_id}
+    const row=document.createElement('tr'); cell(row,adt(x.timestamp)); cell(row,x.milestone_cents+'¢'); cell(row,x.milestone_outcome); cell(row,dollar(x.up_price)); cell(row,dollar(x.down_price)); cell(row,x.actual_price_difference_usdc==null?'—':dollar(x.actual_price_difference_usdc)); cell(row,duration(x.elapsed_seconds)); cell(row,duration(x.seconds_remaining)); milestones.appendChild(row)
+  }
   const events=document.querySelector('#events'); events.replaceChildren();
   for(const x of d.events){const row=document.createElement('tr'); cell(row,adt(x.timestamp)); cell(row,x.event); cell(row,(x.price==null?'':dollar(x.price))+(x.seconds_remaining==null?'':' • '+Math.round(x.seconds_remaining)+'s')); cell(row,x.reason||x.error||''); events.appendChild(row)}
 }

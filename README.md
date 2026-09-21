@@ -162,7 +162,7 @@ For every monitored 5-minute market, the bot also records the first observed
 leading-outcome price at 65¢, 70¢, 75¢, 80¢, 85¢, and 90¢. Each checkpoint
 includes the simultaneous Up and Down buy prices, signed BTC difference from
 the opening reference, elapsed time since market start, and time remaining.
-The dashboard shows these in **Price checkpoints**. Adjust the levels with
+The dashboard separates checkpoints by their 5-minute market window. Adjust the levels with
 `PRICE_MILESTONES_CENTS` (for example, `65,70,75,80,85,90`).
 
 For a qualifying entry, the bot compares the current BTC/USD 60-second TWAP
