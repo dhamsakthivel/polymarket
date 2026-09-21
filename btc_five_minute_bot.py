@@ -55,6 +55,11 @@ class BotConfig:
     max_consecutive_errors: int = int(os.getenv("MAX_CONSECUTIVE_ERRORS", "8"))
     initial_backoff_seconds: float = float(os.getenv("INITIAL_BACKOFF_SECONDS", "2"))
     max_backoff_seconds: float = float(os.getenv("MAX_BACKOFF_SECONDS", "60"))
+    price_milestones: tuple[float, ...] = tuple(
+        float(value) / 100 for value in os.getenv(
+            "PRICE_MILESTONES_CENTS", "65,70,75,80,85,90"
+        ).split(",")
+    )
     gamma_url: str = "https://gamma-api.polymarket.com/markets"
     clob_host: str = "https://clob.polymarket.com"
     chain_id: int = 137
@@ -81,6 +86,10 @@ class BotConfig:
             raise ValueError("difference thresholds must be strictly increasing")
         if self.max_daily_loss_usdc < 0 or self.max_consecutive_errors < 1:
             raise ValueError("max daily loss must be non-negative and error threshold positive")
+        if not self.price_milestones or any(not 0 < value <= 1 for value in self.price_milestones):
+            raise ValueError("price milestones must be non-empty values between 0 and 1")
+        if tuple(sorted(self.price_milestones)) != self.price_milestones:
+            raise ValueError("price milestones must be sorted in ascending order")
 
 
 @dataclass(frozen=True)
@@ -191,13 +200,17 @@ class PolymarketBot:
 
     def _load_state(self) -> dict[str, Any]:
         if not self.config.state_file.exists():
-            return {"entered_market_ids": [], "open_trades": {}, "settlements": {}, "price_to_beat": {}}
+            return {
+                "entered_market_ids": [], "open_trades": {}, "settlements": {},
+                "price_to_beat": {}, "observed_price_milestones": {},
+            }
         try:
             data = json.loads(self.config.state_file.read_text(encoding="utf-8"))
             data.setdefault("entered_market_ids", [])
             data.setdefault("open_trades", {})
             data.setdefault("settlements", {})
             data.setdefault("price_to_beat", {})
+            data.setdefault("observed_price_milestones", {})
             return data
         except (OSError, json.JSONDecodeError) as exc:
             raise RuntimeError(f"Cannot safely load state file {self.config.state_file}: {exc}") from exc
@@ -431,16 +444,55 @@ class PolymarketBot:
                           outcome=outcome.name, price=price, seconds_remaining=remaining,
                           reason="price_below_threshold", price_threshold=self.config.price_threshold)
 
+    def record_price_milestones(self, market: Market, prices: list[tuple[Outcome, float]],
+                                remaining: float, sizing: tuple[float, float, float, float] | None) -> None:
+        """Record each configured price level once, with both outcome prices and BTC movement."""
+        observed = self.state["observed_price_milestones"].setdefault(market.market_id, [])
+        observed_levels = {float(level) for level in observed}
+        changed = False
+        leading_outcome, leading_price = max(prices, key=lambda item: item[1])
+        up_price = next((price for outcome, price in prices if outcome.name.casefold() == "up"), None)
+        down_price = next((price for outcome, price in prices if outcome.name.casefold() == "down"), None)
+        elapsed = max(0.0, (datetime.now(timezone.utc) - market.start_time).total_seconds())
+        for level in self.config.price_milestones:
+            if level in observed_levels or leading_price < level:
+                continue
+            current_btc = sizing[3] if sizing is not None else None
+            price_to_beat = sizing[2] if sizing is not None else None
+            self.events.write(
+                "price_milestone_reached",
+                market_id=market.market_id,
+                gamma_id=market.gamma_id,
+                milestone_cents=round(level * 100),
+                milestone_outcome=leading_outcome.name,
+                milestone_price=leading_price,
+                up_price=up_price,
+                down_price=down_price,
+                actual_price_difference_usdc=(
+                    current_btc - price_to_beat if current_btc is not None and price_to_beat is not None else None
+                ),
+                price_to_beat=price_to_beat,
+                current_btc_price=current_btc,
+                market_start_time=market.start_time.isoformat(),
+                elapsed_seconds=elapsed,
+                seconds_remaining=remaining,
+            )
+            observed.append(level)
+            observed_levels.add(level)
+            changed = True
+        if changed:
+            self._save_state()
+
     def consider_market(self, market: Market) -> None:
         remaining = (market.end_time - datetime.now(timezone.utc)).total_seconds()
-        if market.market_id in self.entered_market_ids:
+        if remaining < 0:
             return
         prices = [(outcome, self.best_buy_price(outcome.token_id)) for outcome in market.outcomes]
-        outcome, price = max(prices, key=lambda item: item[1])  # leading outcome means highest buy price
-        if remaining < 0:
-            self._record_skip(market, outcome, price, remaining, "market_expired")
-            return
         sizing = self.size_for_difference(market)
+        self.record_price_milestones(market, prices, remaining, sizing)
+        if market.market_id in self.entered_market_ids:
+            return
+        outcome, price = max(prices, key=lambda item: item[1])  # leading outcome means highest buy price
         # Contra rule: from market opening through 2:30 remaining, a signed difference
         # beyond +/-$200 buys the opposite direction at its available price, bypassing 75c.
         special_window = self.config.time_threshold_seconds <= remaining <= (

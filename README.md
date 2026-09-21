@@ -157,6 +157,13 @@ During every final-150-second market check, a leading price below 75¢ is
 recorded as an `entry_unavailable` event. This makes missed entries visible in
 the dashboard and event log without changing the entry rule.
 
+For every monitored 5-minute market, the bot also records the first observed
+leading-outcome price at 65¢, 70¢, 75¢, 80¢, 85¢, and 90¢. Each checkpoint
+includes the simultaneous Up and Down buy prices, signed BTC difference from
+the opening reference, elapsed time since market start, and time remaining.
+The dashboard shows these in **Price checkpoints**. Adjust the levels with
+`PRICE_MILESTONES_CENTS` (for example, `65,70,75,80,85,90`).
+
 For a qualifying entry, the bot compares the current BTC/USD 60-second TWAP
 with the 60-second TWAP captured at the beginning of the market. Both values
 come from Polymarket RTDS's official relay of the market's declared Chainlink

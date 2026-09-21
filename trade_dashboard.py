@@ -27,10 +27,12 @@ button{border:0;border-radius:6px;padding:9px 12px;font-weight:700;cursor:pointe
 <div class="cards"><div class="card">±$200 contra entries<div class="value" id="contra-status">Loading…</div><button id="contra-toggle" disabled>Loading…</button></div><div class="card">Accepted fills<div class="value" id="fills">0</div></div><div class="card">Unavailable entries<div class="value" id="unavailable">0</div></div><div class="card">Resolved P/L (USDC)<div class="value" id="pnl">$0.00</div></div><div class="card">Resolved P/L (INR)<div class="value" id="pnl-inr">₹0.00</div></div><div class="card">Open positions<div class="value" id="open">0</div></div></div>
 <h2>Day-wise summary</h2><table><thead><tr><th>Date (ADT/AST)</th><th>Trades</th><th>Total lot size</th><th>Wins</th><th>Losses</th><th>Settled P/L (USDC)</th><th>Settled P/L (INR)</th></tr></thead><tbody id="daily"></tbody></table>
 <h2>Trades and results</h2><table><thead><tr><th>Time (ADT/AST)</th><th>Entry buy</th><th>Price</th><th>BTC difference (signed)</th><th>Lot size</th><th>Final outcome</th><th>P/L (USDC) / status</th><th>P/L (INR)</th></tr></thead><tbody id="trades"></tbody></table>
+<h2>Price checkpoints</h2><div class="muted">First observed leading-outcome price at each level for every monitored 5-minute market.</div><table><thead><tr><th>Time (ADT/AST)</th><th>Level</th><th>Outcome at level</th><th>Up price</th><th>Down price</th><th>BTC difference (signed)</th><th>Since market start</th><th>Time remaining</th></tr></thead><tbody id="milestones"></tbody></table>
 <h2>Unavailable entries and operational events</h2><table><thead><tr><th>Time (ADT/AST)</th><th>Event</th><th>Price / time left</th><th>Reason</th></tr></thead><tbody id="events"></tbody></table>
 <script>
 const dollar=v=>'$'+Number(v||0).toFixed(2), rupee=v=>'₹'+Number(v||0).toFixed(2), text=v=>v==null?'':String(v);
 const adt=v=>v?new Intl.DateTimeFormat('en-CA',{timeZone:'America/Halifax',year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZoneName:'short'}).format(new Date(v)):'';
+const duration=v=>v==null?'—':Math.floor(v/60)+'m '+Math.floor(v%60)+'s';
 function finalOutcome(trade){
   if(!trade.settlement)return 'Awaiting resolution';
   if(trade.settlement.final_outcome)return trade.settlement.final_outcome;
@@ -61,6 +63,8 @@ async function refresh(){
   for(const x of d.daily_summary){const row=document.createElement('tr'); cell(row,x.date); cell(row,x.trades); cell(row,dollar(x.lot_size_usdc)); cell(row,x.wins); cell(row,x.losses); cell(row,dollar(x.realized_pnl),x.realized_pnl<0?'bad':'good'); cell(row,rupee(x.realized_pnl_inr),x.realized_pnl_inr<0?'bad':'good'); daily.appendChild(row)}
   const trades=document.querySelector('#trades'); trades.replaceChildren();
   for(const x of d.trades){const row=document.createElement('tr'); cell(row,adt(x.timestamp)); cell(row,(x.outcome||'')+' buy • '+(x.token_id||'')); cell(row,dollar(x.filled_price||x.price)); cell(row,x.actual_price_difference_usdc==null?(x.price_difference_usdc==null?'—':dollar(x.price_difference_usdc)):dollar(x.actual_price_difference_usdc)); cell(row,dollar(x.size_usdc)); cell(row,finalOutcome(x)); const result=x.settlement?dollar(x.settlement.pnl_usdc):(x.status||'accepted'); cell(row,result,x.settlement?.pnl_usdc<0?'bad':'good'); cell(row,x.settlement?rupee(x.settlement.pnl_usdc*d.inr_per_usdc):'—',x.settlement?.pnl_usdc<0?'bad':'good'); trades.appendChild(row)}
+  const milestones=document.querySelector('#milestones'); milestones.replaceChildren();
+  for(const x of d.price_milestones){const row=document.createElement('tr'); cell(row,adt(x.timestamp)); cell(row,x.milestone_cents+'¢'); cell(row,x.milestone_outcome); cell(row,dollar(x.up_price)); cell(row,dollar(x.down_price)); cell(row,x.actual_price_difference_usdc==null?'—':dollar(x.actual_price_difference_usdc)); cell(row,duration(x.elapsed_seconds)); cell(row,duration(x.seconds_remaining)); milestones.appendChild(row)}
   const events=document.querySelector('#events'); events.replaceChildren();
   for(const x of d.events){const row=document.createElement('tr'); cell(row,adt(x.timestamp)); cell(row,x.event); cell(row,(x.price==null?'':dollar(x.price))+(x.seconds_remaining==null?'':' • '+Math.round(x.seconds_remaining)+'s')); cell(row,x.reason||x.error||''); events.appendChild(row)}
 }
@@ -147,6 +151,9 @@ def dashboard_data(directory: Path, inr_per_usdc: float = 83.0,
         event for event in events
         if event.get("event") in {"entry_unavailable", "skipped_opportunity", "operational_error", "critical_stop"}
     ]
+    price_milestones = [
+        event for event in events if event.get("event") == "price_milestone_reached"
+    ]
     return {
         "directory": str(directory),
         "inr_per_usdc": inr_per_usdc,
@@ -160,6 +167,9 @@ def dashboard_data(directory: Path, inr_per_usdc: float = 83.0,
         },
         "daily_summary": sorted(daily.values(), key=lambda item: item["date"], reverse=True),
         "trades": trades[:200],
+        "price_milestones": sorted(
+            price_milestones, key=lambda item: str(item.get("timestamp", "")), reverse=True
+        )[:500],
         "events": sorted(relevant_events, key=lambda item: str(item.get("timestamp", "")), reverse=True)[:300],
     }
 
