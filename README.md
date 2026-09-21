@@ -159,9 +159,9 @@ $80–<$100 uses $50; $100–<$120 uses $100; $120–$150 uses $250; and above
 $150 uses $500. If the opening reference or a fresh current TWAP is
 unavailable, it logs the skipped opportunity rather than guessing a size.
 
-Special direction-aware rule: from market opening (5:00 remaining) through
-2:30 remaining, a signed BTC difference of +$200 or more buys **UP** at its
-available price; −$200 or less buys **DOWN** at its available price. This
-bypasses the normal 75¢ and leading-outcome gates, uses the existing $500 tier,
-and still permits only one entry per market window. The dashboard displays the
-signed difference for new trades.
+Special contra rule: from market opening (5:00 remaining) through 2:30
+remaining, a signed BTC difference above +$200 buys **DOWN** at its available
+price; below −$200 buys **UP** at its available price. This bypasses the
+normal 75¢ and leading-outcome gates, uses the existing $500 tier, and still
+permits only one entry per market window. The dashboard displays the signed
+difference for new trades.

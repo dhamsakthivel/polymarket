@@ -421,15 +421,15 @@ class PolymarketBot:
             self._record_skip(market, outcome, price, remaining, "market_expired")
             return
         sizing = self.size_for_difference(market)
-        # Special rule: from market opening through 2:30 remaining, a signed +/-$200
-        # difference buys the matching direction at its available price, bypassing 75c.
+        # Contra rule: from market opening through 2:30 remaining, a signed difference
+        # beyond +/-$200 buys the opposite direction at its available price, bypassing 75c.
         special_window = self.config.time_threshold_seconds <= remaining <= (
             market.end_time - market.start_time
         ).total_seconds()
         actual_difference = sizing[3] - sizing[2] if sizing is not None else None
         if special_window and actual_difference is not None and \
-                abs(actual_difference) >= self.config.special_difference_threshold_usdc:
-            desired_outcome = "up" if actual_difference > 0 else "down"
+                abs(actual_difference) > self.config.special_difference_threshold_usdc:
+            desired_outcome = "down" if actual_difference > 0 else "up"
             special_outcome, special_price = next(((item, item_price) for item, item_price in prices
                                                    if item.name.casefold() == desired_outcome), (None, None))
             if special_outcome is not None and special_price is not None and special_price > 0:
@@ -437,9 +437,9 @@ class PolymarketBot:
                     self._record_skip(market, special_outcome, special_price, remaining, "daily_loss_circuit_breaker")
                     self.log.critical("Daily loss circuit breaker is active; no new trades today.")
                     return
-                direction = "positive_up" if actual_difference > 0 else "negative_down"
+                direction = "positive_down" if actual_difference > 0 else "negative_up"
                 self._enter(market, special_outcome, special_price, remaining, *sizing,
-                            entry_rule=f"special_difference_{direction}")
+                            entry_rule=f"contra_difference_{direction}")
                 return
         if remaining > self.config.time_threshold_seconds:
             return
