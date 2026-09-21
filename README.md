@@ -79,15 +79,16 @@ Run this in a second terminal in the same folder as the bot:
 python3 trade_dashboard.py
 ```
 
-Open `http://127.0.0.1:8080` in a browser. The **New entries** control can
-turn new entries on or off. It writes `bot_control.json` in the bot folder;
-the bot checks that file before each entry and once more immediately before
-submitting an order. Turning it off does not close positions or stop
-settlement tracking. The UI refreshes every five seconds and shows accepted
-fills, the Up/Down side bought, final resolved outcome, resolved P/L, open
-positions, and unavailable entries. Its timestamps use Atlantic time
-(`America/Halifax`), displaying ADT or AST as appropriate. To use a different
-log folder or port:
+Open `http://127.0.0.1:8080` in a browser. The **±$200 contra entries**
+control can turn only the special contra strategy on or off. It writes
+`bot_control.json` in the bot folder; the bot checks that file before each
+contra entry and once more immediately before submitting an order. Turning it
+off leaves the normal leading-outcome strategy (the final 2:30 of the market),
+open positions, and settlement tracking unaffected. The UI refreshes every
+five seconds and shows accepted fills, the Up/Down side bought, final resolved
+outcome, resolved P/L, open positions, and unavailable entries. Its timestamps
+use Atlantic time (`America/Halifax`), displaying ADT or AST as appropriate.
+To use a different log folder or port:
 
 ```bash
 python3 trade_dashboard.py --directory /path/to/bot/logs --port 8081

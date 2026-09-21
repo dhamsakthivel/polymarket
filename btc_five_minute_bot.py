@@ -169,25 +169,25 @@ class PolymarketBot:
         self.known_market_ids: set[str] = set()
         self._client: Any | None = None
         self.twap_feed = ChainlinkTwapFeed()
-        self._last_trading_enabled: bool | None = None
+        self._last_contra_trading_enabled: bool | None = None
 
-    def trading_enabled(self) -> bool:
-        """Read the dashboard control flag; a malformed explicit flag fails closed."""
+    def contra_trading_enabled(self) -> bool:
+        """Read the dashboard contra flag; a malformed explicit flag fails closed."""
         if not self.config.control_file.exists():
             return True
         try:
             control = json.loads(self.config.control_file.read_text(encoding="utf-8"))
-            return control.get("trading_enabled") is True
+            return control.get("contra_trading_enabled", True) is True
         except (OSError, json.JSONDecodeError, AttributeError):
             return False
 
     def sync_trading_control(self) -> None:
-        enabled = self.trading_enabled()
-        if enabled != self._last_trading_enabled:
-            self.events.write("trading_control_changed", enabled=enabled,
+        enabled = self.contra_trading_enabled()
+        if enabled != self._last_contra_trading_enabled:
+            self.events.write("contra_trading_control_changed", enabled=enabled,
                               control_file=str(self.config.control_file))
-            self.log.info("New entries are %s by dashboard control.", "enabled" if enabled else "disabled")
-            self._last_trading_enabled = enabled
+            self.log.info("Contra entries are %s by dashboard control.", "enabled" if enabled else "disabled")
+            self._last_contra_trading_enabled = enabled
 
     def _load_state(self) -> dict[str, Any]:
         if not self.config.state_file.exists():
@@ -435,8 +435,6 @@ class PolymarketBot:
         remaining = (market.end_time - datetime.now(timezone.utc)).total_seconds()
         if market.market_id in self.entered_market_ids:
             return
-        if not self.trading_enabled():
-            return
         prices = [(outcome, self.best_buy_price(outcome.token_id)) for outcome in market.outcomes]
         outcome, price = max(prices, key=lambda item: item[1])  # leading outcome means highest buy price
         if remaining < 0:
@@ -449,7 +447,7 @@ class PolymarketBot:
             market.end_time - market.start_time
         ).total_seconds()
         actual_difference = sizing[3] - sizing[2] if sizing is not None else None
-        if special_window and actual_difference is not None and \
+        if self.contra_trading_enabled() and special_window and actual_difference is not None and \
                 abs(actual_difference) > self.config.special_difference_threshold_usdc:
             desired_outcome = "down" if actual_difference > 0 else "up"
             special_outcome, special_price = next(((item, item_price) for item, item_price in prices
@@ -481,10 +479,9 @@ class PolymarketBot:
     def _enter(self, market: Market, outcome: Outcome, price: float, remaining: float, size_usdc: float,
                price_difference_usdc: float, price_to_beat: float, current_btc_price: float,
                entry_rule: str = "normal_leading_outcome") -> None:
-        # Re-check directly before submitting a paper or live order in case the UI changed mid-poll.
-        if not self.trading_enabled():
+        if entry_rule.startswith("contra_") and not self.contra_trading_enabled():
             self.events.write("trade_blocked", market_id=market.market_id, token_id=outcome.token_id,
-                              reason="trading_disabled")
+                              reason="contra_trading_disabled")
             return
         base = {
             "timestamp": datetime.now(timezone.utc).isoformat(),

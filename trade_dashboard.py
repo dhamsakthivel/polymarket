@@ -24,7 +24,7 @@ table{border-collapse:collapse;width:100%;background:#192231}th,td{text-align:le
 button{border:0;border-radius:6px;padding:9px 12px;font-weight:700;cursor:pointer}.on{background:#61d69b;color:#102018}.off{background:#ff8b8b;color:#290d0d}
 </style></head><body>
 <h1>BTC Up/Down 5m bot</h1><div class="muted" id="updated">Loading local log files…</div>
-<div class="cards"><div class="card">New entries<div class="value" id="trading-status">Loading…</div><button id="trading-toggle" disabled>Loading…</button></div><div class="card">Accepted fills<div class="value" id="fills">0</div></div><div class="card">Unavailable entries<div class="value" id="unavailable">0</div></div><div class="card">Resolved P/L (USDC)<div class="value" id="pnl">$0.00</div></div><div class="card">Resolved P/L (INR)<div class="value" id="pnl-inr">₹0.00</div></div><div class="card">Open positions<div class="value" id="open">0</div></div></div>
+<div class="cards"><div class="card">±$200 contra entries<div class="value" id="contra-status">Loading…</div><button id="contra-toggle" disabled>Loading…</button></div><div class="card">Accepted fills<div class="value" id="fills">0</div></div><div class="card">Unavailable entries<div class="value" id="unavailable">0</div></div><div class="card">Resolved P/L (USDC)<div class="value" id="pnl">$0.00</div></div><div class="card">Resolved P/L (INR)<div class="value" id="pnl-inr">₹0.00</div></div><div class="card">Open positions<div class="value" id="open">0</div></div></div>
 <h2>Day-wise summary</h2><table><thead><tr><th>Date (ADT/AST)</th><th>Trades</th><th>Total lot size</th><th>Wins</th><th>Losses</th><th>Settled P/L (USDC)</th><th>Settled P/L (INR)</th></tr></thead><tbody id="daily"></tbody></table>
 <h2>Trades and results</h2><table><thead><tr><th>Time (ADT/AST)</th><th>Entry buy</th><th>Price</th><th>BTC difference (signed)</th><th>Lot size</th><th>Final outcome</th><th>P/L (USDC) / status</th><th>P/L (INR)</th></tr></thead><tbody id="trades"></tbody></table>
 <h2>Unavailable entries and operational events</h2><table><thead><tr><th>Time (ADT/AST)</th><th>Event</th><th>Price / time left</th><th>Reason</th></tr></thead><tbody id="events"></tbody></table>
@@ -39,20 +39,20 @@ function finalOutcome(trade){
   return 'Awaiting resolution';
 }
 function cell(row, value, cls=''){let td=document.createElement('td');td.textContent=text(value);td.className=cls;row.appendChild(td)}
-function setTradingControl(enabled){
-  const status=document.querySelector('#trading-status'), button=document.querySelector('#trading-toggle');
+function setContraControl(enabled){
+  const status=document.querySelector('#contra-status'), button=document.querySelector('#contra-toggle');
   status.textContent=enabled?'ON':'OFF'; status.className=enabled?'good':'bad';
-  button.textContent=enabled?'Turn off new entries':'Turn on new entries'; button.className=enabled?'off':'on'; button.disabled=false;
+  button.textContent=enabled?'Turn off contra':'Turn on contra'; button.className=enabled?'off':'on'; button.disabled=false;
 }
-document.querySelector('#trading-toggle').addEventListener('click',async()=>{
-  const button=document.querySelector('#trading-toggle'), enabled=button.className!=='off';
+document.querySelector('#contra-toggle').addEventListener('click',async()=>{
+  const button=document.querySelector('#contra-toggle'), enabled=button.className!=='off';
   button.disabled=true;
-  try {const r=await fetch('/api/trading-enabled',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});if(!r.ok)throw new Error('Unable to save control');setTradingControl((await r.json()).trading_enabled)}
+  try {const r=await fetch('/api/contra-trading-enabled',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});if(!r.ok)throw new Error('Unable to save control');setContraControl((await r.json()).contra_trading_enabled)}
   catch(e){document.querySelector('#updated').textContent=e.message;button.disabled=false}
 });
 async function refresh(){
   const r=await fetch('/api/data',{cache:'no-store'}); if(!r.ok)throw new Error('Unable to read logs'); const d=await r.json();
-  setTradingControl(d.trading_enabled);
+  setContraControl(d.contra_trading_enabled);
   document.querySelector('#fills').textContent=d.summary.fills; document.querySelector('#unavailable').textContent=d.summary.unavailable;
   document.querySelector('#pnl').textContent=dollar(d.summary.realized_pnl); document.querySelector('#pnl').className=d.summary.realized_pnl<0?'bad':'good';
   document.querySelector('#pnl-inr').textContent=rupee(d.summary.realized_pnl_inr); document.querySelector('#pnl-inr').className=d.summary.realized_pnl_inr<0?'bad':'good';
@@ -83,20 +83,20 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
     return records
 
 
-def trading_enabled(control_file: Path) -> bool:
-    """Missing flag means enabled; a malformed explicit flag is safe-off."""
+def contra_trading_enabled(control_file: Path) -> bool:
+    """Missing flag means contra entries are enabled; a malformed flag is safe-off."""
     if not control_file.exists():
         return True
     try:
         control = json.loads(control_file.read_text(encoding="utf-8"))
-        return control.get("trading_enabled") is True
+        return control.get("contra_trading_enabled", True) is True
     except (OSError, json.JSONDecodeError, AttributeError):
         return False
 
 
-def save_trading_control(control_file: Path, enabled: bool) -> None:
+def save_contra_trading_control(control_file: Path, enabled: bool) -> None:
     temporary = control_file.with_suffix(".tmp")
-    temporary.write_text(json.dumps({"trading_enabled": enabled}, indent=2) + "\n", encoding="utf-8")
+    temporary.write_text(json.dumps({"contra_trading_enabled": enabled}, indent=2) + "\n", encoding="utf-8")
     temporary.replace(control_file)
 
 
@@ -150,7 +150,7 @@ def dashboard_data(directory: Path, inr_per_usdc: float = 83.0,
     return {
         "directory": str(directory),
         "inr_per_usdc": inr_per_usdc,
-        "trading_enabled": trading_enabled(control_file),
+        "contra_trading_enabled": contra_trading_enabled(control_file),
         "summary": {
             "fills": len(trades),
             "unavailable": sum(event.get("event") == "entry_unavailable" for event in events),
@@ -176,7 +176,7 @@ def make_handler(directory: Path, inr_per_usdc: float, control_file: Path) -> ty
                 self._respond(HTTPStatus.NOT_FOUND, b"Not found", "text/plain; charset=utf-8")
 
         def do_POST(self) -> None:  # noqa: N802
-            if self.path != "/api/trading-enabled":
+            if self.path != "/api/contra-trading-enabled":
                 self._respond(HTTPStatus.NOT_FOUND, b"Not found", "text/plain; charset=utf-8")
                 return
             try:
@@ -186,8 +186,8 @@ def make_handler(directory: Path, inr_per_usdc: float, control_file: Path) -> ty
                 payload = json.loads(self.rfile.read(length))
                 if not isinstance(payload.get("enabled"), bool):
                     raise ValueError("enabled must be a boolean")
-                save_trading_control(control_file, payload["enabled"])
-                body = json.dumps({"trading_enabled": payload["enabled"]}).encode()
+                save_contra_trading_control(control_file, payload["enabled"])
+                body = json.dumps({"contra_trading_enabled": payload["enabled"]}).encode()
                 self._respond(HTTPStatus.OK, body, "application/json")
             except (OSError, ValueError, json.JSONDecodeError):
                 self._respond(HTTPStatus.BAD_REQUEST, b"Invalid trading control request",
