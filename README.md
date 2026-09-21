@@ -85,9 +85,10 @@ control can turn only the special contra strategy on or off. It writes
 contra entry and once more immediately before submitting an order. Turning it
 off leaves the normal leading-outcome strategy (the final 2:30 of the market),
 open positions, and settlement tracking unaffected. The UI refreshes every
-five seconds and shows accepted fills, the Up/Down side bought, final resolved
-outcome, resolved P/L, open positions, and unavailable entries. Its timestamps
-use Atlantic time (`America/Halifax`), displaying ADT or AST as appropriate.
+five seconds and shows accepted fills, the Up/Down side bought, time since the
+5-minute market opened, final resolved outcome, resolved P/L, open positions,
+and unavailable entries. Its timestamps use Atlantic time (`America/Halifax`),
+displaying ADT or AST as appropriate.
 To use a different log folder or port:
 
 ```bash

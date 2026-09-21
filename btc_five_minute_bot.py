@@ -550,7 +550,11 @@ class PolymarketBot:
             "price_to_beat": price_to_beat,
             "current_btc_price": current_btc_price,
             "entry_rule": entry_rule,
+            "market_start_time": market.start_time.isoformat(),
             "market_end_time": market.end_time.isoformat(),
+            "elapsed_seconds_since_market_start": max(
+                0.0, (datetime.now(timezone.utc) - market.start_time).total_seconds()
+            ),
             "seconds_remaining": remaining,
         }
         self.events.write("trade_attempt", **base)
