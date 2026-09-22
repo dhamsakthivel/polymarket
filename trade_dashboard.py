@@ -14,6 +14,9 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 
+LOT_SIZES = (1, 5, 10, 25, 50, 100, 250, 500)
+
+
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BTC 5m Bot Dashboard</title>
@@ -26,12 +29,13 @@ button{border:0;border-radius:6px;padding:9px 12px;font-weight:700;cursor:pointe
 </style></head><body>
 <h1>BTC Up/Down 5m bot</h1><div class="muted" id="updated">Loading local log files…</div>
 <div class="cards"><div class="card">±$200 contra entries<div class="value" id="contra-status">Loading…</div><button id="contra-toggle" disabled>Loading…</button></div><div class="card">Accepted fills<div class="value" id="fills">0</div></div><div class="card">Unavailable entries<div class="value" id="unavailable">0</div></div><div class="card">Resolved P/L (USDC)<div class="value" id="pnl">$0.00</div></div><div class="card">Resolved P/L (INR)<div class="value" id="pnl-inr">₹0.00</div></div><div class="card">Open positions<div class="value" id="open">0</div></div></div>
-<h2>Day-wise summary</h2><table><thead><tr><th>Date (ADT/AST)</th><th>Trades</th><th>Total lot size</th><th>Wins</th><th>Losses</th><th>Settled P/L (USDC)</th><th>Settled P/L (INR)</th></tr></thead><tbody id="daily"></tbody></table>
+<h2>Day-wise summary</h2><table><thead><tr><th>Date (ADT/AST)</th><th>Trades</th><th>Total lot size</th><th>Wins</th><th>Losses</th><th>Settled P/L (USDC)</th><th>Settled P/L (INR)</th><th>$1 P/L</th><th>$5 P/L</th><th>$10 P/L</th><th>$25 P/L</th><th>$50 P/L</th><th>$100 P/L</th><th>$250 P/L</th><th>$500 P/L</th></tr></thead><tbody id="daily"></tbody></table>
 <h2>Trades and results</h2><table><thead><tr><th>Time (ADT/AST)</th><th>Since market start</th><th>Entry buy</th><th>Price</th><th>BTC difference (signed)</th><th>Lot size</th><th>Final outcome</th><th>P/L (USDC) / status</th><th>P/L (INR)</th></tr></thead><tbody id="trades"></tbody></table>
 <h2>Price checkpoints</h2><div class="muted">First observed leading-outcome price at each level for every monitored 5-minute market.</div><table><thead><tr><th>Time (ADT/AST)</th><th>Level</th><th>Outcome at level</th><th>Up price</th><th>Down price</th><th>BTC difference (signed)</th><th>Since market start</th><th>Time remaining</th></tr></thead><tbody id="milestones"></tbody></table>
 <h2>Unavailable entries and operational events</h2><table><thead><tr><th>Time (ADT/AST)</th><th>Event</th><th>Price / time left</th><th>Reason</th></tr></thead><tbody id="events"></tbody></table>
 <script>
 const dollar=v=>'$'+Number(v||0).toFixed(2), rupee=v=>'₹'+Number(v||0).toFixed(2), text=v=>v==null?'':String(v);
+const lotSizes=[1,5,10,25,50,100,250,500];
 const adt=v=>v?new Intl.DateTimeFormat('en-CA',{timeZone:'America/Halifax',year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZoneName:'short'}).format(new Date(v)):'';
 const duration=v=>v==null?'—':Math.floor(v/60)+'m '+Math.floor(v%60)+'s';
 function finalOutcome(trade){
@@ -61,7 +65,7 @@ async function refresh(){
   document.querySelector('#pnl-inr').textContent=rupee(d.summary.realized_pnl_inr); document.querySelector('#pnl-inr').className=d.summary.realized_pnl_inr<0?'bad':'good';
   document.querySelector('#open').textContent=d.summary.open_positions; document.querySelector('#updated').textContent='Reading '+d.directory+' • refreshed '+new Date().toLocaleTimeString();
   const daily=document.querySelector('#daily'); daily.replaceChildren();
-  for(const x of d.daily_summary){const row=document.createElement('tr'); cell(row,x.date); cell(row,x.trades); cell(row,dollar(x.lot_size_usdc)); cell(row,x.wins); cell(row,x.losses); cell(row,dollar(x.realized_pnl),x.realized_pnl<0?'bad':'good'); cell(row,rupee(x.realized_pnl_inr),x.realized_pnl_inr<0?'bad':'good'); daily.appendChild(row)}
+  for(const x of d.daily_summary){const row=document.createElement('tr'); cell(row,x.date); cell(row,x.trades); cell(row,dollar(x.lot_size_usdc)); cell(row,x.wins); cell(row,x.losses); cell(row,dollar(x.realized_pnl),x.realized_pnl<0?'bad':'good'); cell(row,rupee(x.realized_pnl_inr),x.realized_pnl_inr<0?'bad':'good'); for(const size of lotSizes){const pnl=Number(x.pnl_by_lot_size?.[size]||0);cell(row,dollar(pnl),pnl<0?'bad':'good')} daily.appendChild(row)}
   const trades=document.querySelector('#trades'); trades.replaceChildren();
   const groupedTrades=[...d.trades].sort((a,b)=>Number(b.size_usdc||0)-Number(a.size_usdc||0)||String(b.timestamp||'').localeCompare(String(a.timestamp||'')));
   let previousLotSize=null;
@@ -147,13 +151,19 @@ def dashboard_data(directory: Path, inr_per_usdc: float = 83.0,
             date = datetime.fromisoformat(str(trade["timestamp"]).replace("Z", "+00:00")).astimezone(atlantic).date().isoformat()
         except (KeyError, ValueError):
             continue
-        row = daily.setdefault(date, {"date": date, "trades": 0, "lot_size_usdc": 0.0,
-                                      "wins": 0, "losses": 0, "realized_pnl": 0.0})
+        row = daily.setdefault(date, {
+            "date": date, "trades": 0, "lot_size_usdc": 0.0, "wins": 0,
+            "losses": 0, "realized_pnl": 0.0,
+            "pnl_by_lot_size": {str(size): 0.0 for size in LOT_SIZES},
+        })
         row["trades"] += 1
         row["lot_size_usdc"] += float(trade.get("size_usdc", 0))
         if settlement := trade.get("settlement"):
             pnl = float(settlement.get("pnl_usdc", 0))
             row["realized_pnl"] += pnl
+            size = float(trade.get("size_usdc", 0))
+            lot_key = str(int(size)) if size.is_integer() else str(size)
+            row["pnl_by_lot_size"][lot_key] = row["pnl_by_lot_size"].get(lot_key, 0.0) + pnl
             row["wins"] += pnl > 0
             row["losses"] += pnl < 0
     for row in daily.values():

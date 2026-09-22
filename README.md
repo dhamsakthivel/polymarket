@@ -103,8 +103,9 @@ trades first within each lot-size group.
 
 The day-wise summary groups trades by their Atlantic-time entry date and shows
 entry count, total lot size (the total USDC committed), settled wins/losses,
-and settled P/L. Unresolved trades are included in the lot-size count but not
-in wins, losses, or P/L.
+settled P/L, plus realized P/L separately for each lot size ($1 through $500).
+Unresolved trades are included in the lot-size count but not in wins, losses,
+or P/L.
 
 The dashboard also displays estimated INR P/L using ₹83.00 per USDC by
 default. This is a manual conversion rate, not a live FX quote. Set it before
