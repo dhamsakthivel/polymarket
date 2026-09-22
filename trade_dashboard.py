@@ -63,7 +63,13 @@ async function refresh(){
   const daily=document.querySelector('#daily'); daily.replaceChildren();
   for(const x of d.daily_summary){const row=document.createElement('tr'); cell(row,x.date); cell(row,x.trades); cell(row,dollar(x.lot_size_usdc)); cell(row,x.wins); cell(row,x.losses); cell(row,dollar(x.realized_pnl),x.realized_pnl<0?'bad':'good'); cell(row,rupee(x.realized_pnl_inr),x.realized_pnl_inr<0?'bad':'good'); daily.appendChild(row)}
   const trades=document.querySelector('#trades'); trades.replaceChildren();
-  for(const x of d.trades){const row=document.createElement('tr'); const elapsed=x.elapsed_seconds_since_market_start ?? (x.seconds_remaining==null?null:Math.max(0,300-x.seconds_remaining)); cell(row,adt(x.timestamp)); cell(row,duration(elapsed)); cell(row,(x.outcome||'')+' buy • '+(x.token_id||'')); cell(row,dollar(x.filled_price||x.price)); cell(row,x.actual_price_difference_usdc==null?(x.price_difference_usdc==null?'—':dollar(x.price_difference_usdc)):dollar(x.actual_price_difference_usdc)); cell(row,dollar(x.size_usdc)); cell(row,finalOutcome(x)); const result=x.settlement?dollar(x.settlement.pnl_usdc):(x.status||'accepted'); cell(row,result,x.settlement?.pnl_usdc<0?'bad':'good'); cell(row,x.settlement?rupee(x.settlement.pnl_usdc*d.inr_per_usdc):'—',x.settlement?.pnl_usdc<0?'bad':'good'); trades.appendChild(row)}
+  const groupedTrades=[...d.trades].sort((a,b)=>Number(b.size_usdc||0)-Number(a.size_usdc||0)||String(b.timestamp||'').localeCompare(String(a.timestamp||'')));
+  let previousLotSize=null;
+  for(const x of groupedTrades){
+    const lotSize=Number(x.size_usdc||0);
+    if(lotSize!==previousLotSize){const separator=document.createElement('tr'); separator.className='separator'; const label=document.createElement('td'); label.colSpan=9; label.textContent='Lot size • '+dollar(lotSize); separator.appendChild(label); trades.appendChild(separator); previousLotSize=lotSize}
+    const row=document.createElement('tr'); const elapsed=x.elapsed_seconds_since_market_start ?? (x.seconds_remaining==null?null:Math.max(0,300-x.seconds_remaining)); cell(row,adt(x.timestamp)); cell(row,duration(elapsed)); cell(row,(x.outcome||'')+' buy • '+(x.token_id||'')); cell(row,dollar(x.filled_price||x.price)); cell(row,x.actual_price_difference_usdc==null?(x.price_difference_usdc==null?'—':dollar(x.price_difference_usdc)):dollar(x.actual_price_difference_usdc)); cell(row,dollar(x.size_usdc)); cell(row,finalOutcome(x)); const result=x.settlement?dollar(x.settlement.pnl_usdc):(x.status||'accepted'); cell(row,result,x.settlement?.pnl_usdc<0?'bad':'good'); cell(row,x.settlement?rupee(x.settlement.pnl_usdc*d.inr_per_usdc):'—',x.settlement?.pnl_usdc<0?'bad':'good'); trades.appendChild(row)
+  }
   const milestones=document.querySelector('#milestones'); milestones.replaceChildren();
   let previousMarketId='';
   for(const x of d.price_milestones){

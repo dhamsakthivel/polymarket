@@ -98,6 +98,9 @@ python3 trade_dashboard.py --directory /path/to/bot/logs --port 8081
 If the bot uses a custom `BOT_CONTROL_FILE`, pass the same path to the
 dashboard with `--control-file /path/to/control.json`.
 
+The **Trades and results** table groups entries by lot size, showing newest
+trades first within each lot-size group.
+
 The day-wise summary groups trades by their Atlantic-time entry date and shows
 entry count, total lot size (the total USDC committed), settled wins/losses,
 and settled P/L. Unresolved trades are included in the lot-size count but not
