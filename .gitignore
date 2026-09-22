@@ -1,0 +1,9 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+bot_events.jsonl
+paper_trades.jsonl
+live_trades.jsonl
+bot_state.json
+bot_state.tmp
